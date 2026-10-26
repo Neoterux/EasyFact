@@ -187,12 +187,164 @@ class KeepRuleLintTest {
 
     @Test
     fun oneDirectivesArgumentsAreNotReadAsAnothers() {
-        // Arguments run to the next directive token, so the bare pattern belonging to a legal
-        // `-dontwarn` must not be attributed to the narrow `-keep` beside it, nor the reverse.
+        // FW-05: the earlier version of this test passed with the argument bounding removed, so it
+        // pinned nothing. This shape discriminates — without bounding, the `-keep`'s `class *` is
+        // read as the `-dontwarn`'s arguments and the blanket keep goes unreported.
+        val hits = lint(
+            """
+            # Reason: a package-scoped dontwarn does not excuse the blanket keep beside it.
+            -dontwarn javax.annotation.** -keep class * { *; }
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun aLegalPairOnOneLineStaysClean() {
+        // The counterpart: bounding must not invent a violation out of two legitimate rules.
         val hits = lint(
             """
             # Reason: narrow keep plus a package-scoped dontwarn, both legitimate.
             -keep class com.example.synthetic.Probe { <init>(); } -dontwarn javax.annotation.**
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun anAtFileAfterAClosingBraceIsIndirection() {
+        // FR-01, confirmed against R8 9.5.0-dev: it reports "Included file ... not found" at the
+        // `@`, so a rule file can begin right after a member block. Three line-oriented fixes let
+        // this through.
+        val hits = lint(
+            """
+            # Reason: the narrow rule is fine; the include smuggled in after it is not.
+            -keep class com.example.synthetic.Probe { <init>(); } @extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun anAtFileAfterACompletedRuleWithNoBlockIsIndirection() {
+        val hits = lint(
+            """
+            # Reason: a package-scoped dontwarn is fine; the include after it is not.
+            -dontwarn javax.annotation.** @extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun aCommentLineInsideAnOpenBlockDoesNotHideWhatFollows() {
+        // FW-02. Comments are whitespace to R8, so the blanket keep after the block is a real rule.
+        val hits = lint(
+            """
+            # Reason: probe.
+            -keep class com.example.synthetic.Probe {
+            # a note in the middle of the member block
+            <init>(); } -keep class * { *; }
+            """,
+        )
+
+        assertTrue("expected the hidden blanket keep to be reported in $hits", hits.any { it.endsWith(": blanket keep/dontwarn") })
+    }
+
+    @Test
+    fun aBlankLineInsideAnOpenBlockDoesNotHideWhatFollows() {
+        val hits = lint(
+            """
+            # Reason: probe.
+            -keep class com.example.synthetic.Probe {
+
+            <init>(); } -include extra-rules.pro
+            """,
+        )
+
+        assertTrue(
+            "expected the hidden include to be reported in $hits",
+            hits.any { it.endsWith(": -include/-basedirectory pulls in rules this gate never sees") },
+        )
+    }
+
+    @Test
+    fun aMemberAnnotationFilterOnItsOwnLineIsNotIndirection() {
+        // FW-01 — a regression the previous fix introduced. Inside a member block an `@` is an
+        // annotation filter on a member, and this is a common, legal rule shape.
+        val hits = lint(
+            """
+            # Reason: the bridge methods are reached only from JavaScript.
+            -keep class com.example.synthetic.Bridge {
+            @android.webkit.JavascriptInterface <methods>;
+            }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun negatedClassKeywordsAreStillBlanket() {
+        // FW-03. `-keep !interface * { *; }` keeps every class that is not an interface.
+        for (keyword in listOf("!class", "!interface", "!enum")) {
+            val hits = lint(
+                """
+                # Reason: a justification does not make a negated blanket rule narrow.
+                -keep $keyword * { *; }
+                """,
+            )
+
+            assertEquals("$keyword should be blanket", listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+        }
+    }
+
+    @Test
+    fun anAnnotationScopedKeepIsNotBlanket() {
+        // FI-02. `-keep @Keep class *` is scoped by the annotation, not blanket — and this is the
+        // very example the policy's own KDoc gives, which the previous implementation flagged.
+        val hits = lint(
+            """
+            # Reason: entry points are marked with the Keep annotation and found reflectively.
+            -keep @androidx.annotation.Keep class *
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun anExtendsAnnotationFilterIsNotIndirection() {
+        val hits = lint(
+            """
+            # Reason: subclasses of the annotated base are constructed reflectively.
+            -keep class com.example.synthetic.Probe extends @androidx.annotation.Keep com.example.synthetic.Base
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun aDirectiveSplitAcrossLinesIsStillOneRule() {
+        // The tokenizer must not turn a legal multi-line member block into several rules.
+        val hits = lint(
+            """
+            # Reason: reached only through a reflective lookup by fully qualified name.
+            -keep class com.example.synthetic.Probe {
+                <init>();
+                public void run();
+            }
             """,
         )
 

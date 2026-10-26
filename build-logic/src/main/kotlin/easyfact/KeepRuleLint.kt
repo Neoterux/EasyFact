@@ -28,13 +28,18 @@ package easyfact
  *  - Blanket directives and patterns are rejected: they freeze reflection-reachable code and
  *    enlarge the shipped surface silently.
  *
- * A statement is any non-blank, non-comment line beginning with `-` or `@`. Following lines that
- * begin with neither are treated as its continuation (a multi-line `{ ... }` member block).
+ * The file is read as ONE TOKEN STREAM, the way R8 reads it — not as lines whose first word
+ * decides everything. Three rounds of line-oriented heuristics each closed the spelling the last
+ * reviewer named and left the next one open: a `,modifier` suffix, then a second directive on the
+ * same line, then a leading `@file`, and after each fix `-keep class X { } @other.pro` or a
+ * comment line inside an open `{` block still walked through. They were one defect, not four:
+ * comments and newlines are whitespace to R8, and a rule can begin wherever the previous one
+ * ended.
  *
- * Within a statement the policy is token-oriented, because R8 is: a line can carry more than one
- * directive, and a directive's arguments run to the next directive token. Deciding a statement by
- * the first token of its first line let `-keep class X { *; } -include other.pro` and a leading
- * `@other.pro` both pass while R8 obeyed them.
+ * So: comments are stripped before anything else, `{` and `}` carry a brace depth, and a rule
+ * begins at any depth-0 token that starts with `-` or `@`. A `#` inside a quoted filename would be
+ * stripped as a comment — ProGuard permits that spelling and this policy does not; it is a
+ * limitation, not an oversight, and it fails closed (the rule is then malformed and visible).
  */
 object KeepRuleLint {
 
@@ -55,16 +60,35 @@ object KeepRuleLint {
         "-keepclasseswithmembernames",
     )
 
-    private val classKeywords = setOf("class", "interface", "enum", "@interface")
+    /**
+     * Class-type keywords in a class specification, each with its negated form.
+     *
+     * The negated forms matter: `-keep !interface * { *; }` keeps every class that is not an
+     * interface, which is a blanket keep by any reading, and it used to pass because only the
+     * bare keywords were listed.
+     */
+    private val classKeywords = setOf(
+        "class", "interface", "enum", "@interface",
+        "!class", "!interface", "!enum",
+    )
 
     /**
      * Directives that name another rule file. Rules reached this way are applied by R8 but are
      * invisible to this gate, so a single `-include` would defeat both rules above at once.
      *
-     * ProGuard's `@file` shorthand is the same control and is handled in [isIndirection], since it
-     * carries no leading `-`.
+     * ProGuard's `@file` shorthand is the same control written without a leading `-`; it is
+     * recognised in [ruleStarts] wherever a rule can begin, which R8 was observed to honour
+     * mid-statement, not only at the start of one.
      */
     private val indirectionDirectives = setOf("-include", "-basedirectory")
+
+    /** Tokens after which an `@` is an annotation filter in a class specification, not an include. */
+    private val annotationFilterPredecessors = setOf("extends", "implements")
+
+    private data class Token(val text: String, val line: Int)
+
+    /** One rule: the directive that opened it, its arguments, and the line it began on. */
+    private data class Rule(val directive: String, val arguments: List<String>, val line: Int)
 
     /**
      * Returns one `<displayName>:<line>: <violation>` string per problem found in [text], in
@@ -73,43 +97,120 @@ object KeepRuleLint {
     fun violations(text: String, displayName: String): List<String> {
         val lines = text.lines()
         val result = ArrayList<String>()
-        var index = 0
-        while (index < lines.size) {
-            val trimmed = lines[index].trim()
-            if (!isStatementStart(trimmed)) {
-                index++
-                continue
+        val reasonReported = HashSet<Int>()
+
+        for (rule in ruleStarts(tokenize(lines))) {
+            if (!hasReasonAbove(lines, rule.line) && reasonReported.add(rule.line)) {
+                result += "$displayName:${rule.line + 1}: $MISSING_REASON"
             }
-            val statementLine = index + 1
-            val body = StringBuilder(stripTrailingComment(trimmed))
-            var next = index + 1
-            while (next < lines.size && isContinuation(lines[next].trim())) {
-                body.append(' ').append(stripTrailingComment(lines[next].trim()))
-                next++
+            if (isBlanket(rule)) {
+                result += "$displayName:${rule.line + 1}: $BLANKET"
             }
-            if (!hasReasonAbove(lines, index)) {
-                result += "$displayName:$statementLine: $MISSING_REASON"
+            if (isIndirection(rule)) {
+                result += "$displayName:${rule.line + 1}: $INCLUDE"
             }
-            if (isBlanket(body.toString())) {
-                result += "$displayName:$statementLine: $BLANKET"
-            }
-            if (isIndirection(body.toString())) {
-                result += "$displayName:$statementLine: $INCLUDE"
-            }
-            index = next
         }
         return result
     }
 
-    private fun isStatementStart(trimmed: String) =
-        trimmed.isNotEmpty() && !trimmed.startsWith("#") && (trimmed.startsWith("-") || trimmed.startsWith("@"))
+    /**
+     * Splits [lines] into tokens, dropping comments and keeping `{`, `}` and `;` as tokens of
+     * their own so brace depth can be tracked across lines.
+     */
+    private fun tokenize(lines: List<String>): List<Token> {
+        val tokens = ArrayList<Token>()
+        for ((number, raw) in lines.withIndex()) {
+            val line = raw.substringBefore('#')
+            val word = StringBuilder()
+            fun flush() {
+                if (word.isNotEmpty()) {
+                    tokens += Token(word.toString(), number)
+                    word.clear()
+                }
+            }
+            for (character in line) {
+                when {
+                    character.isWhitespace() -> flush()
+                    character == '{' || character == '}' || character == ';' -> {
+                        flush()
+                        tokens += Token(character.toString(), number)
+                    }
+                    else -> word.append(character)
+                }
+            }
+            flush()
+        }
+        return tokens
+    }
 
-    private fun isContinuation(trimmed: String) =
-        trimmed.isNotEmpty() && !trimmed.startsWith("#") && !trimmed.startsWith("-") && !trimmed.startsWith("@")
+    /**
+     * Every rule in [tokens], in source order, with the arguments that belong to it.
+     *
+     * A rule begins at a depth-0 token starting with `-`, or at a depth-0 `@` that is not an
+     * annotation filter. Its arguments run until the next rule begins or a member block opens, so
+     * one rule's class specification is never read as another's. Everything inside `{ ... }` is a
+     * member block: an `@` there is an annotation filter on a member, which is why a filter on its
+     * own line is no longer mistaken for an include.
+     */
+    private fun ruleStarts(tokens: List<Token>): List<Rule> {
+        val rules = ArrayList<Rule>()
+        var depth = 0
+        var previous: String? = null
+        for ((index, token) in tokens.withIndex()) {
+            when {
+                token.text == "{" -> depth++
+                token.text == "}" -> if (depth > 0) depth--
+                depth > 0 -> Unit
+                token.text == ";" -> Unit
+                token.text.startsWith("-") ->
+                    rules += Rule(token.text.substringBefore(','), argumentsFrom(tokens, index + 1), token.line)
+                token.text.startsWith("@") && !isAnnotationFilter(previous) ->
+                    rules += Rule("@", argumentsFrom(tokens, index + 1), token.line)
+                else -> Unit
+            }
+            if (depth == 0 && token.text != ";") previous = token.text
+        }
+        return rules
+    }
 
-    private fun stripTrailingComment(line: String): String {
-        val at = line.indexOf(" #")
-        return if (at >= 0) line.substring(0, at).trim() else line
+    /**
+     * True when an `@` token following [previous] is a class specification's annotation filter.
+     *
+     * `-keep @androidx.annotation.Keep class *` and `... extends @Anno Base` are both legal and
+     * must not be read as includes. Anywhere else at depth 0 a rule can begin, so `@` there is
+     * ProGuard's include shorthand — including straight after a `}`, which R8 was observed to
+     * honour and which three earlier fixes let through.
+     */
+    private fun isAnnotationFilter(previous: String?): Boolean {
+        val token = previous ?: return false
+        return token.substringBefore(',') in keepFamily || token in annotationFilterPredecessors
+    }
+
+    private fun argumentsFrom(tokens: List<Token>, start: Int): List<String> {
+        val arguments = ArrayList<String>()
+        var index = start
+        while (index < tokens.size) {
+            val text = tokens[index].text
+            if (text == "{" || text == "}" || text == ";" || text.startsWith("-")) break
+            arguments += text
+            index++
+        }
+        return arguments
+    }
+
+    private fun isIndirection(rule: Rule) = rule.directive == "@" || rule.directive in indirectionDirectives
+
+    private fun isBlanket(rule: Rule): Boolean = when {
+        rule.directive in blanketDirectives -> true
+        rule.directive == "-dontwarn" -> rule.arguments.flatMap { it.split(',') }.any { isBarePattern(it) }
+        rule.directive in keepFamily -> {
+            // An annotation filter scopes the rule to classes carrying that annotation, so
+            // `-keep @Keep class *` is narrow by intent and is not a blanket keep.
+            val keyword = rule.arguments.indexOfFirst { it in classKeywords }
+            rule.arguments.none { it.startsWith("@") } &&
+                keyword >= 0 && keyword + 1 < rule.arguments.size && isBarePattern(rule.arguments[keyword + 1])
+        }
+        else -> false
     }
 
     /** True when the contiguous comment block directly above [statementIndex] has a `# Reason:` line. */
@@ -123,61 +224,6 @@ object KeepRuleLint {
         }
         return false
     }
-
-    /**
-     * True when any directive token of [statement] names another rule file.
-     *
-     * A leading `@file` is ProGuard's documented shorthand for `-include file`, and R8 honours it,
-     * so it counts. An `@` token anywhere else is an annotation filter inside a class
-     * specification (`-keep @androidx.annotation.Keep class *`) and is deliberately NOT flagged —
-     * flagging it would reject a legitimate rule. `@file` is a top-level form, so first-token
-     * position is the whole of its grammar.
-     */
-    private fun isIndirection(statement: String): Boolean {
-        val tokens = tokensOf(statement)
-        if (tokens.firstOrNull()?.startsWith("@") == true) return true
-        return tokens.any { it.startsWith("-") && it.substringBefore(',') in indirectionDirectives }
-    }
-
-    /**
-     * Every directive token of [statement], paired with the arguments that belong to it.
-     *
-     * This is the token-oriented pass. R8 reads a configuration as a token stream, not a stream of
-     * lines whose first word decides everything, so `-keep class X { *; } -include other.pro` is
-     * two directives on one line and `-keep class * { *; }` hidden after a narrow rule is a blanket
-     * keep. Judging a statement by its first token alone missed both: the lint reported green and
-     * R8 obeyed the rule. Arguments run to the next directive token, so one directive's class
-     * specification is never read as another's.
-     *
-     * The `,modifier` suffix is stripped from each directive, because R8 accepts keep modifiers on
-     * the directive itself (`-keep,allowobfuscation,allowshrinking class * { *; }`).
-     */
-    private fun directives(statement: String): List<Pair<String, List<String>>> {
-        val tokens = tokensOf(statement)
-        val result = ArrayList<Pair<String, List<String>>>()
-        for ((i, token) in tokens.withIndex()) {
-            if (!token.startsWith("-")) continue
-            val arguments = tokens.drop(i + 1).takeWhile { !it.startsWith("-") }
-            result += token.substringBefore(',') to arguments
-        }
-        return result
-    }
-
-    private fun tokensOf(statement: String) =
-        statement.split(Regex("[\\s{};]+")).filter { it.isNotEmpty() }
-
-    private fun isBlanket(statement: String): Boolean =
-        directives(statement).any { (directive, arguments) ->
-            when {
-                directive in blanketDirectives -> true
-                directive == "-dontwarn" -> arguments.flatMap { it.split(',') }.any { isBarePattern(it) }
-                directive in keepFamily -> {
-                    val keyword = arguments.indexOfFirst { it in classKeywords }
-                    keyword >= 0 && keyword + 1 < arguments.size && isBarePattern(arguments[keyword + 1])
-                }
-                else -> false
-            }
-        }
 
     private fun isBarePattern(pattern: String) = pattern == "*" || pattern == "**"
 }
