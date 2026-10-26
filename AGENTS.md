@@ -146,13 +146,16 @@ Current state of the skeleton: AGP 9.4.1, Gradle 9.6, `compileSdk` 37,
 genuinely required (Compose compiler, KSP, serialization) and verify the build
 still configures.
 
-Open items in the skeleton that should be resolved early:
+Skeleton decisions, now settled:
 
-- Java/JVM target is 11. Raise to 17 (or the current AGP default) before
-  writing production code.
-- `rootProject.name` is `FacturadorMedico` while the namespace is
-  `com.neoterux.easyfact`. Pick one English-language identity and make it
-  consistent before the first release.
+- The project name is EasyFact. The `applicationId` and namespace remain
+  `com.neoterux.easyfact`, so no installed app is orphaned by the rename.
+- The JVM target is 17. It is pinned on the JVM modules with `options.release`
+  and `-Xjdk-release=17` rather than a Java toolchain, so the daemon JDK and the
+  API level the code may use are independent.
+- The release build runs R8 over the whole app with resource shrinking. The
+  optimization-scoping entry from the skeleton was removed for the measured
+  reason recorded in `app/build.gradle.kts`.
 
 ---
 
@@ -370,6 +373,10 @@ no mail credentials.
   directly.
 - Exclude app-internal key material from auto-backup in
   `backup_rules.xml` / `data_extraction_rules.xml`.
+- Keep the certificate directory under `Context.getNoBackupFilesDir()`. The
+  platform guarantees that location's exclusion independently of the rule
+  files, which is the belt-and-braces half of the bullet above; consider the
+  Room database file for the same location.
 - Surface certificate expiry prominently and warn ahead of time.
 
 ---
@@ -447,11 +454,16 @@ an afterthought.
 ./gradlew test                   # all unit tests
 ./gradlew connectedAndroidTest   # instrumented tests (device or emulator)
 ./gradlew lint                   # Android Lint
+./gradlew verifyRelease          # release-artifact gates: size baseline, keep rules, release-dex URL hosts
 ./gradlew --stop                 # stop daemons if the build misbehaves
 ```
 
 Configuration cache is enabled in `gradle.properties`. If a change breaks
 configuration caching, fix the cause rather than disabling the cache.
+
+Every build gate attaches to `./gradlew check`, except the release-artifact
+gates, which live on `verifyRelease`. [`docs/build-invariants.md`](docs/build-invariants.md)
+says what each gate enforces and, as importantly, what it cannot see.
 
 ---
 
