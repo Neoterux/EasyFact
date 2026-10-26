@@ -1,13 +1,23 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Default-deny legacy backup rules. Every legacy domain is excluded in full and
+   nothing is allow-listed anywhere, so a file added in any domain by a later
+   phase is excluded without anyone having to remember to add a line.
+
+   The minimum supported Android version is 12, where android:dataExtractionRules
+   takes precedence and this file is ignored. It is kept aligned with that file
+   anyway and is asserted by the same build gate. The device_-prefixed domains
+   are valid only in data_extraction_rules.xml and must not appear here.
+
+   The signing certificate, its Keystore-wrapped password and the Room database
+   that a later phase creates must never leave the device through backup. The
+   supported migration route is the user-controlled archive export planned for
+   a later phase.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
 </full-backup-content>
