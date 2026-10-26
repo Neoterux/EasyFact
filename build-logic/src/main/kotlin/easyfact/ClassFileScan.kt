@@ -66,6 +66,27 @@ object ClassFileScan {
     }
 
     /**
+     * Complaints about a scan whose result cannot mean anything, whatever it found.
+     *
+     * This is WR-01. The task reported a pass whenever it collected no hits, and collecting no
+     * hits is also exactly what a mis-wired `classDirs`, an uncompiled module or an empty
+     * forbidden list looks like from inside the gate. Under any of those, "no violations found"
+     * means "nothing was looked at" — the one thing a boundary gate must never report as clean.
+     *
+     * Returns an empty list when the scan was genuinely performed, whatever its verdict then is.
+     */
+    fun preconditionViolations(forbiddenSlashPrefixes: List<String>, scannedClassCount: Int): List<String> {
+        val result = ArrayList<String>()
+        if (forbiddenSlashPrefixes.isEmpty()) {
+            result += "the forbidden-package list is empty, so the scan would pass on any input"
+        }
+        if (scannedClassCount < 1) {
+            result += "no class files were scanned, so a pass would mean nothing was looked at"
+        }
+        return result
+    }
+
+    /**
      * Returns the constants of [bytes] that name a package in [forbiddenSlashPrefixes].
      *
      * Each prefix is written in slash form (`javax/xml/stream/`) and is matched in three shapes:

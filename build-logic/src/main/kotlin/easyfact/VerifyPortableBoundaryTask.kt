@@ -38,6 +38,11 @@ import org.gradle.api.tasks.TaskAction
  * All decisions are delegated to [ClassFileScan]. The task holds no mutable state and resolves
  * nothing from `Project` at execution time, so it is configuration-cache safe and, because every
  * input is declared, up-to-date checking never reuses a stale verdict.
+ *
+ * Two conditions fail the gate before any class is read, because under either one "no violations
+ * found" means "nothing was looked at" rather than "the boundary holds": an empty forbidden-package
+ * list, and a scan that visits zero class files. The second is what a mis-wired `classDirs` or a
+ * module whose main output never compiled looks like from in here, and it used to read as a pass.
  */
 abstract class VerifyPortableBoundaryTask : DefaultTask() {
 
@@ -54,13 +59,24 @@ abstract class VerifyPortableBoundaryTask : DefaultTask() {
     fun verify() {
         val prefixes = forbiddenPrefixes.get()
         val hits = ArrayList<String>()
+        var scanned = 0
         classDirs.asFileTree.matching { include("**/*.class") }.visit {
             if (!isDirectory) {
+                scanned++
                 val bytes = file.readBytes()
                 for (constant in ClassFileScan.violations(bytes, prefixes)) {
                     hits += "${relativePath.pathString} -> $constant"
                 }
             }
+        }
+        val unusable = ClassFileScan.preconditionViolations(prefixes, scanned)
+        if (unusable.isNotEmpty()) {
+            throw GradleException(
+                "Portability boundary gate did not perform a meaningful scan:\n" +
+                    unusable.joinToString("\n") { "  $it" } +
+                    "\n  class directories: " +
+                    classDirs.files.joinToString(", ") { it.path }.ifEmpty { "(none were wired)" },
+            )
         }
         if (hits.isNotEmpty()) {
             throw GradleException(

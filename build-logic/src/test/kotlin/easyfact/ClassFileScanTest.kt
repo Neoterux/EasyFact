@@ -126,6 +126,40 @@ class ClassFileScanTest {
         )
     }
 
+    @Test
+    fun aScanThatVisitedNoClassFilesIsNotAPass() {
+        // The WR-01 regression. Collecting no hits is also what a mis-wired classDirs or an
+        // uncompiled module looks like from inside the gate, and that used to read as clean.
+        assertEquals(
+            listOf("no class files were scanned, so a pass would mean nothing was looked at"),
+            ClassFileScan.preconditionViolations(forbidden, scannedClassCount = 0),
+        )
+    }
+
+    @Test
+    fun anEmptyForbiddenListIsNotAPass() {
+        assertEquals(
+            listOf("the forbidden-package list is empty, so the scan would pass on any input"),
+            ClassFileScan.preconditionViolations(emptyList(), scannedClassCount = 12),
+        )
+    }
+
+    @Test
+    fun bothPreconditionsCanFailAtOnce() {
+        assertEquals(
+            listOf(
+                "the forbidden-package list is empty, so the scan would pass on any input",
+                "no class files were scanned, so a pass would mean nothing was looked at",
+            ),
+            ClassFileScan.preconditionViolations(emptyList(), scannedClassCount = 0),
+        )
+    }
+
+    @Test
+    fun aRealScanSatisfiesThePreconditions() {
+        assertEquals(emptyList<String>(), ClassFileScan.preconditionViolations(forbidden, scannedClassCount = 1))
+    }
+
     /**
      * Builds the smallest class file whose constant pool holds exactly [constants] as UTF8 entries.
      *
