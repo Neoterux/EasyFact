@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    id("easyfact.jvm-boundary")
 }
 
 // Pin the JDK 17 API level without provisioning a second JDK: the Gradle daemon runs on JDK 25,
