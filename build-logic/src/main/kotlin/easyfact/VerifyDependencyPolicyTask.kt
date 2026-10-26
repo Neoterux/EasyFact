@@ -81,7 +81,10 @@ abstract class VerifyDependencyPolicyTask : DefaultTask() {
                 deniedProjects = deniedProjects.get(),
             )
             if (violations.isEmpty()) {
-                logger.lifecycle("Dependency policy: ${identifiers.size} modules on $configuration, all allowed")
+                logger.lifecycle(
+                    "Dependency policy: ${identifiers.size} modules on $configuration, all allowed " +
+                        "(a blocklist plus a reviewed allowlist, not a proof that nothing phones home)",
+                )
             } else {
                 failures += "Dependency policy violated on $configuration:\n" +
                     violations.joinToString("\n") { "  $it" }

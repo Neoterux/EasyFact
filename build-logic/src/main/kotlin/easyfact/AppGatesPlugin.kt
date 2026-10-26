@@ -44,8 +44,8 @@ class AppGatesPlugin : Plugin<Project> {
             // plans add their own release-artifact gates to this aggregate.
             project.tasks.register("verifyRelease") {
                 group = "verification"
-                description = "Runs the release-artifact gates: size baseline and keep-rule hygiene."
-                dependsOn("checkReleaseSize", "verifyKeepRules")
+                description = "Runs the release-artifact gates: size baseline, keep-rule hygiene and release-dex URL hosts."
+                dependsOn("checkReleaseSize", "verifyKeepRules", "verifyReleaseUrlHosts")
             }
 
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
@@ -70,6 +70,7 @@ class AppGatesPlugin : Plugin<Project> {
                 }
 
                 registerSizeGates(project, variant)
+                registerUrlHostGate(project, variant)
             }
         }
     }
@@ -158,6 +159,21 @@ class AppGatesPlugin : Plugin<Project> {
             allowedServices.set(ManifestPolicy.SERVICES)
         }
         project.tasks.named("check") { dependsOn(verify) }
+    }
+
+    /**
+     * `verifyReleaseUrlHosts` scans the release APK's dex for URL hosts (D-12 layer 3). It is attached
+     * to `verifyRelease`, not `check`, because it forces a full release build. The APK comes from
+     * `SingleArtifact.APK` through the variant's `BuiltArtifactsLoader`, like the size gate.
+     */
+    private fun registerUrlHostGate(project: Project, variant: ApplicationVariant) {
+        project.tasks.register("verifyReleaseUrlHosts", VerifyReleaseUrlHostsTask::class.java) {
+            group = "verification"
+            description = "Fails if the release dex names a URL host that is not on the reviewed allowlist."
+            apkDir.set(variant.artifacts.get(SingleArtifact.APK))
+            builtArtifactsLoader.set(variant.artifacts.getBuiltArtifactsLoader())
+            allowedHosts.set(UrlHostScan.ALLOWED_HOSTS)
+        }
     }
 
     /**
