@@ -13,3 +13,35 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# --- Secrets, key material and signing credentials -------------------------
+# Never commit certificates, keystores or their passwords. See AGENTS.md 2.2.
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.pem
+*.key
+*.cer
+*.crt
+keystore.properties
+signing.properties
+secrets.properties
+/certificates/
+/signing/
+
+# --- Local, machine-specific or private working files ----------------------
+*.log
+/app/release/
+/app/debug/
+.kotlin/
+/.claude/settings.local.json
+
+# --- Scratch data that may contain real taxpayer information ---------------
+# Keep real invoices, RIDEs and SRI payloads out of the repository entirely.
+/samples/private/
+/scratch/
+*.ride.pdf
+
+# GSD planning artifacts — local only (config.json commit_docs=false)
+.planning/
