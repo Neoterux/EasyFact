@@ -68,15 +68,29 @@ object ClassFileScan {
     /**
      * Returns the constants of [bytes] that name a package in [forbiddenSlashPrefixes].
      *
-     * Each prefix is written in slash form (`javax/xml/stream/`) and is matched in two shapes:
-     * the slash form with an optional leading `L` (descriptors and internal class names), and the
-     * dotted form (string literals handed to reflection). A negative lookbehind on a word, `$`,
-     * `/` or `.` character stops a substring of a longer name from being a false hit.
+     * Each prefix is written in slash form (`javax/xml/stream/`) and is matched in three shapes:
+     * the slash form with an optional leading `L` (descriptors and internal class names), the same
+     * form where the descriptor's `L` follows another descriptor token, and the dotted form
+     * (string literals handed to reflection). A negative lookbehind on a word, `$`, `/` or `.`
+     * character stops a substring of a longer name from being a false hit.
+     *
+     * The second shape exists because the lookbehind alone is wrong inside a method descriptor.
+     * `L` is itself a word character, so in `(ILandroid/content/Context;)V` the lookbehind rejects
+     * the `L` (preceded by the primitive code `I`) and then rejects the bare prefix (preceded by
+     * that `L`) — and a parameter the method never calls leaves no standalone `Class` constant to
+     * catch it instead, so the whole violation passed the gate. The allowed predecessors are the
+     * field-descriptor primitive codes, `[`, `(` and the `;` ending a preceding type. `V` is
+     * deliberately absent: void is only ever a return type, so it never precedes a parameter.
+     * A package that genuinely ends in one of those letters immediately before a forbidden
+     * prefix would be a false positive here, which fails the build loudly rather than shipping a
+     * violation silently — the correct direction for a boundary gate to err in.
      */
     fun violations(bytes: ByteArray, forbiddenSlashPrefixes: List<String>): List<String> {
         val patterns = forbiddenSlashPrefixes.flatMap { prefix ->
+            val slash = Regex.escape(prefix)
             listOf(
-                Regex("(?<![\\w$/.])L?" + Regex.escape(prefix)),
+                Regex("(?<![\\w$/.])L?$slash"),
+                Regex("(?<=[(\\[;BCDFIJSZ])L$slash"),
                 Regex("(?<![\\w$/.])" + Regex.escape(prefix.replace('/', '.'))),
             )
         }

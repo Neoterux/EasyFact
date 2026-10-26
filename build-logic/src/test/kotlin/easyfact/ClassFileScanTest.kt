@@ -67,6 +67,87 @@ class ClassFileScanTest {
         )
     }
 
+    @Test
+    fun forbiddenTypeAfterAPrimitiveInADescriptorIsReported() {
+        // The CR-01 regression. Every one of these is a real method descriptor in which the
+        // forbidden type is not the first parameter, so its `L` follows a primitive code. The
+        // original lookbehind rejected all of them and the gate reported clean.
+        val descriptors = listOf(
+            "(ILandroid/content/Context;)V",
+            "(JLandroid/os/Bundle;)V",
+            "(Ljava/lang/String;ZLandroid/os/Bundle;)V",
+            "(DLandroidx/core/app/NotificationCompat;)V",
+            "(BLdalvik/system/DexFile;)V",
+            "(CLlibcore/io/Memory;)V",
+            "(FLorg/xmlpull/v1/XmlPullParser;)V",
+            "(SLjavax/xml/stream/XMLInputFactory;)V",
+            "([Landroid/view/View;)V",
+            "(Ljava/lang/String;Landroid/net/Uri;)V",
+            "()Landroid/content/Context;",
+        )
+
+        for (descriptor in descriptors) {
+            assertEquals(
+                "expected $descriptor to be reported",
+                listOf(descriptor),
+                ClassFileScan.violations(classBytesWithConstants(descriptor), forbidden),
+            )
+        }
+    }
+
+    @Test
+    fun aLongerPackageEndingInAPrimitiveCodeIsStillNotAFalseHit() {
+        // The lookbehind's original purpose must survive the CR-01 fix: a forbidden prefix that is
+        // only a substring of a longer package name is not a violation.
+        val clean = listOf(
+            "(Lcom/example/myandroid/Thing;)V",
+            "(Lcom/example/notandroidx/Thing;)V",
+            "com.example.myandroid.Thing",
+            "Lcom/example/dalvikish/Thing;",
+        )
+
+        assertEquals(
+            emptyList<String>(),
+            ClassFileScan.violations(classBytesWithConstants(*clean.toTypedArray()), forbidden),
+        )
+    }
+
+    @Test
+    fun descriptorFixtureCarriesAPrimitivePrefixedParameter() {
+        // The compiled counterpart of the synthesized case above: a method whose forbidden
+        // parameter is never called, so the constant pool holds the descriptor and nothing else.
+        val bytes = classBytes("easyfact/ClassFileScanTest\$PrimitivePrefixedFixture.class")
+
+        val hits = ClassFileScan.violations(bytes, forbidden)
+
+        assertTrue(
+            "expected a primitive-prefixed StAX descriptor in $hits",
+            hits.any { it.startsWith("(I") && "Ljavax/xml/stream/XMLInputFactory;" in it },
+        )
+    }
+
+    /**
+     * Builds the smallest class file whose constant pool holds exactly [constants] as UTF8 entries.
+     *
+     * [ClassFileScan.utf8Constants] stops at the end of the pool, so nothing after it is needed.
+     * Synthesizing the pool is what lets a descriptor shape be pinned exactly, instead of hoping a
+     * particular compiler emits it.
+     */
+    private fun classBytesWithConstants(vararg constants: String): ByteArray {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(bytes).use { out ->
+            out.writeInt(0xCAFEBABE.toInt())
+            out.writeShort(0) // minor version
+            out.writeShort(65) // major version
+            out.writeShort(constants.size + 1) // constant_pool_count is entries + 1
+            for (constant in constants) {
+                out.writeByte(1) // CONSTANT_Utf8
+                out.writeUTF(constant)
+            }
+        }
+        return bytes.toByteArray()
+    }
+
     private fun classBytes(resource: String): ByteArray {
         val stream = checkNotNull(javaClass.classLoader.getResourceAsStream(resource)) {
             "fixture class not found on the test classpath: $resource"
@@ -78,6 +159,17 @@ class ClassFileScanTest {
     private class DescriptorFixture {
         @Suppress("unused")
         val factory: javax.xml.stream.XMLInputFactory? = null
+    }
+
+    /**
+     * Takes a forbidden StAX type as a parameter that is never used, behind a primitive.
+     *
+     * This is the shape CR-01 let through: the descriptor is the only constant naming the type,
+     * and its `L` follows the primitive code of the preceding parameter.
+     */
+    private class PrimitivePrefixedFixture {
+        @Suppress("unused", "UNUSED_PARAMETER")
+        fun configure(retries: Int, factory: javax.xml.stream.XMLInputFactory?) = Unit
     }
 
     /** Hands the dotted name of a JSR-105 class to reflection, which Animal Sniffer cannot see. */
