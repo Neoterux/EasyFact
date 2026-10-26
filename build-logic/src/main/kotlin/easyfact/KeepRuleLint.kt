@@ -35,6 +35,7 @@ object KeepRuleLint {
 
     private const val MISSING_REASON = "no preceding '# Reason:'"
     private const val BLANKET = "blanket keep/dontwarn"
+    private const val INCLUDE = "-include/-basedirectory pulls in rules this gate never sees"
 
     /** Directives that switch a whole R8 phase off; never acceptable in project-owned rules. */
     private val blanketDirectives = setOf("-dontshrink", "-dontoptimize", "-dontobfuscate", "-ignorewarnings")
@@ -50,6 +51,12 @@ object KeepRuleLint {
     )
 
     private val classKeywords = setOf("class", "interface", "enum", "@interface")
+
+    /**
+     * Directives that name another rule file. Rules reached this way are applied by R8 but are
+     * invisible to this gate, so a single `-include` would defeat both rules above at once.
+     */
+    private val indirectionDirectives = setOf("-include", "-basedirectory")
 
     /**
      * Returns one `<displayName>:<line>: <violation>` string per problem found in [text], in
@@ -78,6 +85,9 @@ object KeepRuleLint {
             if (isBlanket(body.toString())) {
                 result += "$displayName:$statementLine: $BLANKET"
             }
+            if (isIndirection(body.toString())) {
+                result += "$displayName:$statementLine: $INCLUDE"
+            }
             index = next
         }
         return result
@@ -104,9 +114,25 @@ object KeepRuleLint {
         return false
     }
 
+    private fun isIndirection(statement: String) = directiveOf(statement) in indirectionDirectives
+
+    /**
+     * The directive of [statement] with any `,modifier` suffix removed, or null when there is none.
+     *
+     * The suffix strip is CR-02. R8 accepts keep modifiers on the directive itself
+     * (`-keep,allowobfuscation,allowshrinking class * { *; }`), and comparing the raw first token
+     * against [keepFamily] by equality missed every modifier form — so the broadest possible keep
+     * rule passed the gate untouched.
+     */
+    private fun directiveOf(statement: String): String? =
+        tokensOf(statement).firstOrNull()?.substringBefore(',')
+
+    private fun tokensOf(statement: String) =
+        statement.split(Regex("[\\s{};]+")).filter { it.isNotEmpty() }
+
     private fun isBlanket(statement: String): Boolean {
-        val tokens = statement.split(Regex("[\\s{};]+")).filter { it.isNotEmpty() }
-        val directive = tokens.firstOrNull() ?: return false
+        val tokens = tokensOf(statement)
+        val directive = directiveOf(statement) ?: return false
         return when {
             directive in blanketDirectives -> true
             directive == "-dontwarn" -> tokens.drop(1).flatMap { it.split(',') }.any { isBarePattern(it) }

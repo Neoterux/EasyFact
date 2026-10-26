@@ -28,6 +28,76 @@ import org.junit.Test
  */
 class KeepRuleLintTest {
 
+    @Test
+    fun blanketKeepWithModifiersIsStillBlanket() {
+        // The CR-02 regression. R8 accepts keep modifiers on the directive itself, and comparing
+        // the raw first token against the keep family by equality missed every one of these — so
+        // the broadest possible keep rule passed the gate.
+        val modified = listOf(
+            "-keep,allowobfuscation class * { *; }",
+            "-keep,allowshrinking class ** { *; }",
+            "-keep,allowobfuscation,allowshrinking class * { *; }",
+            "-keep,includedescriptorclasses class ** { *; }",
+            "-keepclassmembers,allowobfuscation class * { *; }",
+            "-keepnames,allowshrinking class ** { *; }",
+        )
+
+        for (rule in modified) {
+            val hits = lint(
+                """
+                # Reason: a justification does not make a blanket rule narrow.
+                $rule
+                """,
+            )
+
+            assertEquals("$rule should be blanket", listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+        }
+    }
+
+    @Test
+    fun includeDirectiveIsRejected() {
+        // Also CR-02: `-include` applies rules from a file this gate never reads, which defeats
+        // both the reason rule and the blanket rule at once.
+        val hits = lint(
+            """
+            # Reason: a reason does not make an unlinted rule file visible.
+            -include extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun basedirectoryDirectiveIsRejected() {
+        val hits = lint("-basedirectory /somewhere/else")
+
+        assertEquals(
+            listOf(
+                "fixture.keep:1: no preceding '# Reason:'",
+                "fixture.keep:1: -include/-basedirectory pulls in rules this gate never sees",
+            ),
+            hits,
+        )
+    }
+
+    @Test
+    fun aNarrowKeepWithModifiersStillPasses() {
+        // The modifier strip must not turn every modified rule into a violation: a justified,
+        // narrowly scoped rule is legal whether or not it carries modifiers.
+        val hits = lint(
+            """
+            # Reason: reached only through a reflective lookup by fully qualified name.
+            -keep,allowobfuscation class com.example.synthetic.Probe { <init>(); }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
     private fun lint(text: String) = KeepRuleLint.violations(text.trimIndent(), "fixture.keep")
 
     @Test
