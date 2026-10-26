@@ -1,12 +1,18 @@
-# Add project specific R8 rules here.
-# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+# Project-owned R8 keep rules.
+# AGP combines every file in src/*/keepRules/*.keep and passes it to R8.
 #
-# For more details, see
-#   https://d.android.com/r/tools/r8/keep-rules
-
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Convention, enforced by :app:verifyKeepRules on every `check`:
+#   - Every rule statement is immediately preceded by a comment line beginning
+#     "# Reason:" that names why that specific symbol must survive R8.
+#   - Blanket patterns are rejected: -dontshrink, -dontoptimize, -dontobfuscate,
+#     -ignorewarnings, a keep rule over a bare * or ** class pattern, and -dontwarn **.
+#
+# The app has no reflection yet, so the correct number of keep rules today is zero.
+# When one becomes necessary, find the narrowest symbol and write it here, for example:
+#
+#   # Reason: <why this exact class is reached only by reflection>
+#   -keep class com.example.SpecificClass { <init>(); }
+#
+# Never widen a rule to make a release build work; remove the reflection instead.
+#
+# For more details, see https://d.android.com/r/tools/r8/keep-rules
