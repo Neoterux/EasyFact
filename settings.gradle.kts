@@ -1,4 +1,5 @@
 pluginManagement {
+    includeBuild("build-logic")
     repositories {
         google {
             content {
@@ -22,5 +23,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FacturadorMedico"
-include(":app")
+rootProject.name = "EasyFact"
+include(":app", ":core:invoicing", ":core:testing")
