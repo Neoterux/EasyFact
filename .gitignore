@@ -9,6 +9,8 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+# Module build directories under core/ and build-logic/ (the line above is root-anchored only)
+build/
 /captures
 .externalNativeBuild
 .cxx
