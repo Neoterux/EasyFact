@@ -42,6 +42,21 @@ class JvmBoundaryPlugin : Plugin<Project> {
                 forbiddenPrefixes.set(FORBIDDEN_PREFIXES)
             }
             project.tasks.named("check") { dependsOn(verify) }
+
+            // Dependency scope for the plain JVM modules: the Kotlin standard library only. This is
+            // what makes it safe for the boundary scanner above to look at each module's own output
+            // and nothing else, because nothing else can be on the runtime classpath.
+            val dependencyPolicy = project.tasks.register("verifyDependencyPolicy", VerifyDependencyPolicyTask::class.java) {
+                group = "verification"
+                description = "Fails if the runtime classpath carries anything beyond the Kotlin standard library."
+                roots.put(
+                    "runtimeClasspath",
+                    project.configurations.named("runtimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent },
+                )
+                allowed.set(DependencyPolicy.JVM_ALLOWED)
+                denied.set(DependencyPolicy.DENIED)
+            }
+            project.tasks.named("check") { dependsOn(dependencyPolicy) }
         }
     }
 

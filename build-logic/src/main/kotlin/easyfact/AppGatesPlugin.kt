@@ -23,6 +23,7 @@ import com.android.build.api.variant.ApplicationVariant
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.tasks.TaskProvider
 
 /**
  * Single home for every build gate that applies to the `:app` module.
@@ -36,6 +37,7 @@ class AppGatesPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         project.plugins.withId("com.android.application") {
             registerKeepRuleGate(project)
+            val dependencyPolicy = registerDependencyPolicyGate(project)
 
             // The heavy release-artifact gates live here, not on `check`: they force a full
             // release build and an App Bundle, which is too much for the per-commit loop. Later
@@ -49,7 +51,10 @@ class AppGatesPlugin : Plugin<Project> {
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
 
             // No build-type selector: every variant the project defines gets its own backup gate.
-            components.onVariants { variant -> registerBackupRulesGate(project, variant) }
+            components.onVariants { variant ->
+                registerBackupRulesGate(project, variant)
+                addToDependencyPolicyGate(dependencyPolicy, variant)
+            }
 
             components.onVariants(components.selector().withBuildType("release")) { variant ->
                 // Read the effective result from the variant instead of trusting that the DSL
@@ -85,6 +90,34 @@ class AppGatesPlugin : Plugin<Project> {
             displayRoot.set(project.layout.projectDirectory)
         }
         project.tasks.named("check") { dependsOn(verify) }
+    }
+
+    /**
+     * `verifyDependencyPolicy` checks every variant's resolved runtime classpath against the telemetry
+     * denylist and the reviewed group allowlist, and keeps BouncyCastle and `:core:testing` off every
+     * shipping classpath (D-12 layer 1, D-13).
+     *
+     * The task is registered once; each variant adds its own graph root in [addToDependencyPolicyGate],
+     * so a future flavour or build type is covered without editing this plugin. The root is taken
+     * from `resolutionResult.rootComponent`, the configuration-cache-compatible structured form.
+     * It is a blocklist and an allowlist, not a proof that nothing phones home.
+     */
+    private fun registerDependencyPolicyGate(project: Project): TaskProvider<VerifyDependencyPolicyTask> {
+        val verify = project.tasks.register("verifyDependencyPolicy", VerifyDependencyPolicyTask::class.java) {
+            group = "verification"
+            description = "Fails if a shipping runtime classpath carries a denied or unlisted dependency."
+            allowed.set(DependencyPolicy.APP_ALLOWED)
+            denied.set(DependencyPolicy.DENIED)
+            allowedProjects.set(DependencyPolicy.APP_ALLOWED_PROJECTS)
+            deniedProjects.set(DependencyPolicy.APP_DENIED_PROJECTS)
+        }
+        project.tasks.named("check") { dependsOn(verify) }
+        return verify
+    }
+
+    private fun addToDependencyPolicyGate(verify: TaskProvider<VerifyDependencyPolicyTask>, variant: ApplicationVariant) {
+        val runtime = variant.runtimeConfiguration
+        verify.configure { roots.put(runtime.name, runtime.incoming.resolutionResult.rootComponent) }
     }
 
     /**
