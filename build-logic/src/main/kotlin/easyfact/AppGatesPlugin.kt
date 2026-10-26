@@ -53,6 +53,7 @@ class AppGatesPlugin : Plugin<Project> {
             // No build-type selector: every variant the project defines gets its own backup gate.
             components.onVariants { variant ->
                 registerBackupRulesGate(project, variant)
+                registerManifestPolicyGate(project, variant)
                 addToDependencyPolicyGate(dependencyPolicy, variant)
             }
 
@@ -135,6 +136,26 @@ class AppGatesPlugin : Plugin<Project> {
             expectedAllowBackup.set(EXPECTED_ALLOW_BACKUP)
             extractionDomains.set(BackupRulesCheck.EXTRACTION_DOMAINS)
             legacyDomains.set(BackupRulesCheck.LEGACY_DOMAINS)
+        }
+        project.tasks.named("check") { dependsOn(verify) }
+    }
+
+    /**
+     * `verify<Variant>ManifestPolicy` checks the variant's **merged** manifest against reviewed
+     * allowlists of permissions, exported components and services (D-12 layer 2). It reads the same
+     * `SingleArtifact.MERGED_MANIFEST` as the backup verifier, once per variant, with no build-type
+     * selector, so a future flavour or build type is covered without editing this plugin.
+     */
+    private fun registerManifestPolicyGate(project: Project, variant: ApplicationVariant) {
+        val taskName = "verify${variant.name.replaceFirstChar { it.uppercase() }}ManifestPolicy"
+        val verify = project.tasks.register(taskName, VerifyManifestPolicyTask::class.java) {
+            group = "verification"
+            description = "Fails if the ${variant.name} merged manifest carries an unreviewed permission, exported component or service."
+            mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+            applicationId.set(variant.applicationId)
+            allowedPermissions.set(ManifestPolicy.PERMISSIONS)
+            allowedExportedComponents.set(ManifestPolicy.EXPORTED_COMPONENTS)
+            allowedServices.set(ManifestPolicy.SERVICES)
         }
         project.tasks.named("check") { dependsOn(verify) }
     }
