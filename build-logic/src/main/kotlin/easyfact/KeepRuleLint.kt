@@ -36,10 +36,11 @@ package easyfact
  * comments and newlines are whitespace to R8, and a rule can begin wherever the previous one
  * ended.
  *
- * So: comments are stripped before anything else, `{` and `}` carry a brace depth, and a rule
- * begins at any depth-0 token that starts with `-` or `@`. A `#` inside a quoted filename would be
- * stripped as a comment — ProGuard permits that spelling and this policy does not; it is a
- * limitation, not an oversight, and it fails closed (the rule is then malformed and visible).
+ * So: a `#` opens a comment only at a token start, `{` and `}` carry a brace depth but only for
+ * the directives that can actually take a member block, and a rule begins at any depth-0 token
+ * that starts with `-` or `@`. The two qualifications are not pedantry — `-printmapping out#x.txt`
+ * and `-printmapping out{x.txt` are both legal R8 and each hid every rule that followed it on the
+ * line.
  */
 object KeepRuleLint {
 
@@ -82,6 +83,22 @@ object KeepRuleLint {
      */
     private val indirectionDirectives = setOf("-include", "-basedirectory")
 
+    /**
+     * Directives that take a class specification, and so are the only ones whose `{` opens a
+     * member block.
+     *
+     * W1b: a `{` inside any other argument — a filename, say — used to open a block that never
+     * closed, so every rule after it was read as member-block content and never evaluated.
+     */
+    private val classSpecDirectives = keepFamily + setOf(
+        "-if",
+        "-whyareyoukeeping",
+        "-assumenosideeffects",
+        "-assumenoexternalsideeffects",
+        "-assumenoexternalreturnvalues",
+        "-assumevalues",
+    )
+
     /** Tokens after which an `@` is an annotation filter in a class specification, not an include. */
     private val annotationFilterPredecessors = setOf("extends", "implements")
 
@@ -120,7 +137,6 @@ object KeepRuleLint {
     private fun tokenize(lines: List<String>): List<Token> {
         val tokens = ArrayList<Token>()
         for ((number, raw) in lines.withIndex()) {
-            val line = raw.substringBefore('#')
             val word = StringBuilder()
             fun flush() {
                 if (word.isNotEmpty()) {
@@ -128,7 +144,11 @@ object KeepRuleLint {
                     word.clear()
                 }
             }
-            for (character in line) {
+            for (character in raw) {
+                // W1a: `#` opens a comment only at a token start. Cutting the line at any `#`
+                // truncated `-printmapping out#x.txt` to `-printmapping out` and hid every rule
+                // after it on that line.
+                if (character == '#' && word.isEmpty()) break
                 when {
                     character.isWhitespace() -> flush()
                     character == '{' || character == '}' || character == ';' -> {
@@ -156,16 +176,24 @@ object KeepRuleLint {
         val rules = ArrayList<Rule>()
         var depth = 0
         var previous: String? = null
+        var openerTakesSpec = false
         for ((index, token) in tokens.withIndex()) {
             when {
-                token.text == "{" -> depth++
+                // Only a class-specification directive's `{` opens a member block (W1b); anywhere
+                // else the brace is ordinary argument text and must not move the depth counter.
+                token.text == "{" -> if (openerTakesSpec) depth++
                 token.text == "}" -> if (depth > 0) depth--
                 depth > 0 -> Unit
                 token.text == ";" -> Unit
-                token.text.startsWith("-") ->
-                    rules += Rule(token.text.substringBefore(','), argumentsFrom(tokens, index + 1), token.line)
-                token.text.startsWith("@") && !isAnnotationFilter(previous) ->
+                token.text.startsWith("-") -> {
+                    val directive = token.text.substringBefore(',')
+                    openerTakesSpec = directive in classSpecDirectives
+                    rules += Rule(directive, argumentsFrom(tokens, index + 1), token.line)
+                }
+                token.text.startsWith("@") && !isAnnotationFilter(previous) -> {
+                    openerTakesSpec = false
                     rules += Rule("@", argumentsFrom(tokens, index + 1), token.line)
+                }
                 else -> Unit
             }
             if (depth == 0 && token.text != ";") previous = token.text

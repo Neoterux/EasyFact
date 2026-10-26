@@ -351,6 +351,93 @@ class KeepRuleLintTest {
         assertEquals(emptyList<String>(), hits)
     }
 
+    @Test
+    fun aHashInsideAFilenameDoesNotStartAComment() {
+        // W1a. `#` opens a comment only at a token start. Treating it as one anywhere truncated
+        // the line at the filename and hid every rule after it.
+        val hits = lint(
+            """
+            # Reason: a mapping file does not excuse the blanket keep beside it.
+            -printmapping out#x.txt -keep class * { *; }
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun aBraceInsideANonSpecArgumentDoesNotOpenAMemberBlock() {
+        // W1b. Only a directive that takes a class specification can open a `{ ... }` block. A `{`
+        // in a filename used to open a block that never closed, so everything after it was read as
+        // member-block content and never evaluated.
+        val hits = lint(
+            """
+            # Reason: a mapping file does not excuse the blanket keep beside it.
+            -printmapping out{x.txt -keep class * { *; }
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun aBraceInANonSpecArgumentDoesNotHideAnInclude() {
+        val hits = lint(
+            """
+            # Reason: a mapping file does not excuse the include beside it.
+            -printseeds seeds{1.txt -include extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun aTrailingCommentIsStillACommentAndAReasonLineStillCounts() {
+        // The guard for W1a: `#` at a token start must still open a comment, or the reason rule
+        // and every trailing note in the file stop working.
+        val hits = lint(
+            """
+            # Reason: reached only through a reflective lookup by fully qualified name.
+            -keep class com.example.synthetic.Probe { <init>(); } # keeps the no-arg constructor
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun aCommentedOutBlanketRuleIsStillIgnored() {
+        val hits = lint(
+            """
+            # Reason: probe.
+            -keep class com.example.synthetic.Probe { <init>(); }
+            # -keep class * { *; }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun aGenuineMemberBlockStillOpensAndCloses() {
+        // The guard for W1b: a keep-family `{` must still open a block, or a member on its own
+        // line is read as a new rule and the FW-01 regression comes back.
+        val hits = lint(
+            """
+            # Reason: the bridge methods are reached only from JavaScript.
+            -keep class com.example.synthetic.Bridge {
+            @android.webkit.JavascriptInterface <methods>;
+            }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
     private fun lint(text: String) = KeepRuleLint.violations(text.trimIndent(), "fixture.keep")
 
     @Test
