@@ -47,6 +47,10 @@ class AppGatesPlugin : Plugin<Project> {
             }
 
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
+
+            // No build-type selector: every variant the project defines gets its own backup gate.
+            components.onVariants { variant -> registerBackupRulesGate(project, variant) }
+
             components.onVariants(components.selector().withBuildType("release")) { variant ->
                 // Read the effective result from the variant instead of trusting that the DSL
                 // block was applied: a gate that only checks its own input proves nothing.
@@ -84,6 +88,25 @@ class AppGatesPlugin : Plugin<Project> {
     }
 
     /**
+     * `verify<Variant>BackupRules` asserts default-deny backup on the variant's **merged** manifest
+     * and the rule files it points at. The source manifest is deliberately never read: a variant
+     * overlay or a library can change what the app actually ships, and only the merged result shows it.
+     */
+    private fun registerBackupRulesGate(project: Project, variant: ApplicationVariant) {
+        val taskName = "verify${variant.name.replaceFirstChar { it.uppercase() }}BackupRules"
+        val verify = project.tasks.register(taskName, VerifyBackupRulesTask::class.java) {
+            group = "verification"
+            description = "Fails if the ${variant.name} merged manifest's backup rules are not default-deny."
+            mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+            variant.sources.res?.all?.let { dirs -> resourceDirs.from(dirs.map { layers -> layers.flatten() }) }
+            expectedAllowBackup.set(EXPECTED_ALLOW_BACKUP)
+            extractionDomains.set(BackupRulesCheck.EXTRACTION_DOMAINS)
+            legacyDomains.set(BackupRulesCheck.LEGACY_DOMAINS)
+        }
+        project.tasks.named("check") { dependsOn(verify) }
+    }
+
+    /**
      * Registers the size gate and the baseline recorder for the release variant, wiring both to
      * AGP's own APK and App Bundle artifacts.
      */
@@ -115,5 +138,8 @@ class AppGatesPlugin : Plugin<Project> {
     private companion object {
         const val BASELINE_FILE_NAME = "size-baseline.properties"
         const val SIZE_TOLERANCE_BYTES = 1024L
+
+        /** Stays `true` by decision so the rules themselves remain exercisable on a device. */
+        const val EXPECTED_ALLOW_BACKUP = "true"
     }
 }
