@@ -132,4 +132,60 @@ class SizeBaselineTest {
             directory.deleteRecursively()
         }
     }
+
+    @Test
+    fun aMissingApkMeasuresZeroAndIsRejectedAsUnusable() {
+        // The WR-02 regression. `File.length()` answers 0 for a file that does not exist, and
+        // `violations` is one-sided, so 0 bytes compared below every baseline and passed.
+        val hits = SizeBaseline.unusableMeasurement(SizeBaseline.Sizes(apkBytes = 0, aabBytes = 737_616), apkCount = 1)
+
+        assertEquals(
+            listOf("measured APK size is 0 bytes; the artifact is missing or empty"),
+            hits,
+        )
+    }
+
+    @Test
+    fun aMissingBundleMeasuresZeroAndIsRejectedAsUnusable() {
+        val hits = SizeBaseline.unusableMeasurement(SizeBaseline.Sizes(apkBytes = 884_330, aabBytes = 0), apkCount = 1)
+
+        assertEquals(
+            listOf("measured App Bundle size is 0 bytes; the artifact is missing or empty"),
+            hits,
+        )
+    }
+
+    @Test
+    fun anEmptyApkListingIsRejectedAsUnusable() {
+        val hits = SizeBaseline.unusableMeasurement(SizeBaseline.Sizes(apkBytes = 0, aabBytes = 0), apkCount = 0)
+
+        assertEquals(
+            listOf(
+                "the release APK listing names no APK",
+                "measured APK size is 0 bytes; the artifact is missing or empty",
+                "measured App Bundle size is 0 bytes; the artifact is missing or empty",
+            ),
+            hits,
+        )
+    }
+
+    @Test
+    fun aZeroSizedMeasurementWouldOtherwisePassTheSizeComparison() {
+        // Why the guard is needed at all: the comparison itself is content to accept 0 bytes.
+        val zero = SizeBaseline.Sizes(apkBytes = 0, aabBytes = 0)
+        val baseline = SizeBaseline.Sizes(apkBytes = 884_330, aabBytes = 737_616)
+
+        assertEquals(emptyList<String>(), SizeBaseline.violations(zero, baseline, toleranceBytes = 1024))
+        assertTrue(SizeBaseline.unusableMeasurement(zero, apkCount = 1).isNotEmpty())
+    }
+
+    @Test
+    fun arealMeasurementIsUsable() {
+        val hits = SizeBaseline.unusableMeasurement(
+            SizeBaseline.Sizes(apkBytes = 884_846, aabBytes = 737_964),
+            apkCount = 1,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
 }

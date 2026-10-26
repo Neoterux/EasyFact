@@ -67,6 +67,31 @@ object SizeBaseline {
     }
 
     /**
+     * Complaints about a measurement that cannot be compared to a baseline at all.
+     *
+     * This is WR-02. [violations] is deliberately one-sided — it reports growth, not shrinkage —
+     * and `File.length()` answers `0` for a file that does not exist. A release APK that AGP
+     * never produced, or produced empty, therefore measured as 0 bytes, compared below every
+     * baseline, and passed. A zero-byte release artifact is never a legitimate measurement, so it
+     * is rejected here rather than silently treated as the smallest build ever made.
+     *
+     * Returns an empty list when the measurement is usable, whatever the sizes then turn out to be.
+     */
+    fun unusableMeasurement(measured: Sizes, apkCount: Int): List<String> {
+        val result = ArrayList<String>()
+        if (apkCount < 1) {
+            result += "the release APK listing names no APK"
+        }
+        if (measured.apkBytes <= 0) {
+            result += "measured APK size is ${measured.apkBytes} bytes; the artifact is missing or empty"
+        }
+        if (measured.aabBytes <= 0) {
+            result += "measured App Bundle size is ${measured.aabBytes} bytes; the artifact is missing or empty"
+        }
+        return result
+    }
+
+    /**
      * Returns one message per artifact that exceeds `baseline + toleranceBytes`, each naming the
      * measured size and the allowed size. Smaller artifacts are never a violation.
      */

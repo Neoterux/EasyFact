@@ -39,6 +39,11 @@ import org.gradle.api.tasks.UntrackedTask
  * The inputs come from `SingleArtifact.APK` and `SingleArtifact.BUNDLE` through the variant
  * artifacts, never from globbing `build/outputs`, so the task depends on the tasks that produce
  * the artifacts and measures exactly what AGP built. No separate bundle-inspection tool is downloaded.
+ *
+ * A measurement is rejected outright when any named artifact is absent or empty, so a build that
+ * did not produce what the listing promises fails as a measurement failure rather than passing as
+ * a very small release. Both the check and the recorder go through here, so a broken build can
+ * neither satisfy the gate nor be written into the baseline.
  */
 abstract class ReleaseArtifactTask : DefaultTask() {
 
@@ -66,6 +71,21 @@ abstract class ReleaseArtifactTask : DefaultTask() {
         val apkBytes = apkFiles.sumOf { it.length() }
         val aabBytes = bundle.get().asFile.length()
         println("MEASURED apk.bytes=$apkBytes (files=${apkFiles.size}) aab.bytes=$aabBytes")
+
+        // WR-02: a named-but-absent artifact measures 0 bytes, which compares below every
+        // baseline. Reject the measurement itself before anyone compares or records it. The
+        // per-file list is built here because only the task knows the file names; the aggregate
+        // judgement lives in the pure policy.
+        val unusable = apkFiles
+            .filter { !it.isFile || it.length() == 0L }
+            .map { "the release APK ${it.name} is missing or empty" }
+            .plus(SizeBaseline.unusableMeasurement(SizeBaseline.Sizes(apkBytes, aabBytes), apkFiles.size))
+        if (unusable.isNotEmpty()) {
+            throw GradleException(
+                "Release size measurement is unusable:\n" + unusable.joinToString("\n") { "  $it" } +
+                    "\nThis is a measurement failure, not a size verdict — the artifacts did not build as expected.",
+            )
+        }
         return SizeBaseline.Sizes(apkBytes = apkBytes, aabBytes = aabBytes)
     }
 }
