@@ -37,9 +37,10 @@ import java.io.File
  *
  * The merged manifest is read, not the source manifest: a variant overlay or a library can change
  * what the app actually ships. Each `@xml/<name>` reference is resolved against the variant's
- * resource directories, and every copy found there is checked, so an overlay that shadows a
- * default-deny file with a permissive one cannot hide behind the compliant copy. Nothing is
- * resolved from `Project` at execution time, so the task is configuration-cache safe.
+ * resource directories through [BackupRulesCheck.ruleFileCandidates], which covers `xml` and every
+ * `xml-<qualifier>` directory, so neither an overlay nor a resource-qualified copy can shadow a
+ * default-deny file with a permissive one and hide behind the compliant copy. Nothing is resolved
+ * from `Project` at execution time, so the task is configuration-cache safe.
  */
 abstract class VerifyBackupRulesTask : DefaultTask() {
 
@@ -74,14 +75,14 @@ abstract class VerifyBackupRulesTask : DefaultTask() {
         )
         for (target in targets) {
             val name = BackupRulesCheck.ruleResourceName(manifestText, target.attribute) ?: continue
-            val copies = resourceDirs.files.map { File(it, "xml/$name.xml") }.filter { it.isFile }
+            val copies = BackupRulesCheck.ruleFileCandidates(resourceDirs.files, name)
             if (copies.isEmpty()) {
                 violations += "@xml/$name (android:${target.attribute}) was not found in any resource directory of this variant"
             }
             for (copy in copies) {
                 violations += BackupRulesCheck.ruleFileViolations(
                     ruleText = copy.readText(),
-                    label = "${copy.parentFile.parentFile.parentFile.name}/xml/$name.xml",
+                    label = "${copy.parentFile.parentFile.parentFile.name}/${copy.parentFile.name}/$name.xml",
                     rootName = target.rootName,
                     extractionDomains = extractionDomains.get(),
                     legacyDomains = legacyDomains.get(),

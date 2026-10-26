@@ -17,6 +17,7 @@
 
 package easyfact
 
+import java.io.File
 import java.io.StringReader
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
@@ -57,6 +58,26 @@ object BackupRulesCheck {
 
     private const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
     private const val XML_RESOURCE_PREFIX = "@xml/"
+
+    /**
+     * Every file named `<name>.xml` under a resource-qualified `xml` directory of [resourceDirs].
+     *
+     * This is CR-03. The task used to open `<resdir>/xml/<name>.xml` and nothing else, so a
+     * permissive `res/xml-v33/data_extraction_rules.xml` — which Android prefers over the
+     * unqualified copy on every device at or above that API level — overrode the default-deny
+     * rules without the gate ever opening it. Android resolves `@xml/<name>` against `xml` AND
+     * every `xml-<qualifier>` directory, so the gate must check all of them: the shipped rules
+     * are whichever copy the device picks, not whichever copy is unqualified.
+     *
+     * Returned in a stable path order so a violation message does not reorder between runs.
+     */
+    fun ruleFileCandidates(resourceDirs: Collection<File>, name: String): List<File> =
+        resourceDirs
+            .flatMap { resDir -> resDir.listFiles()?.asList().orEmpty() }
+            .filter { it.isDirectory && (it.name == "xml" || it.name.startsWith("xml-")) }
+            .map { File(it, "$name.xml") }
+            .filter { it.isFile }
+            .sortedBy { it.path }
 
     /** The `@xml/<name>` resource named by [attribute] on `<application>`, or null if absent. */
     fun ruleResourceName(manifestText: String, attribute: String): String? {

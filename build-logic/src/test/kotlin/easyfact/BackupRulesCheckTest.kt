@@ -17,6 +17,8 @@
 
 package easyfact
 
+import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -186,4 +188,65 @@ class BackupRulesCheckTest {
 
         assertEquals(listOf("android:allowBackup is 'false', expected 'true'"), hits)
     }
+
+    @Test
+    fun qualifiedResourceDirectoriesAreCandidates() {
+        // The CR-03 regression. Android prefers `res/xml-v33/data_extraction_rules.xml` over the
+        // unqualified copy on every device at or above API 33, so a permissive copy there is what
+        // actually ships. The gate used to open `xml/<name>.xml` alone and never see it.
+        val res = Files.createTempDirectory("easyfact-res").toFile()
+        val permissive = write(res, "xml-v33", "data_extraction_rules.xml", includeAllRules())
+        val compliant = write(res, "xml", "data_extraction_rules.xml", extractionRules())
+        write(res, "xml-night", "data_extraction_rules.xml", extractionRules())
+        write(res, "values", "data_extraction_rules.xml", includeAllRules()) // not an xml directory
+        write(res, "xml", "other_rules.xml", includeAllRules()) // a different resource name
+
+        val candidates = BackupRulesCheck.ruleFileCandidates(listOf(res), "data_extraction_rules")
+
+        assertEquals(
+            listOf(
+                compliant.path,
+                File(res, "xml-night/data_extraction_rules.xml").path,
+                permissive.path,
+            ).sorted(),
+            candidates.map { it.path },
+        )
+    }
+
+    @Test
+    fun aPermissiveQualifiedCopyIsReportedAsAViolation() {
+        // End to end over the pure policy: the qualified copy is found AND judged.
+        val res = Files.createTempDirectory("easyfact-res").toFile()
+        write(res, "xml", "data_extraction_rules.xml", extractionRules())
+        write(res, "xml-v33", "data_extraction_rules.xml", includeAllRules())
+
+        val hits = BackupRulesCheck.ruleFileCandidates(listOf(res), "data_extraction_rules").flatMap { copy ->
+            BackupRulesCheck.ruleFileViolations(
+                copy.readText(),
+                "${copy.parentFile.name}/${copy.name}",
+                BackupRulesCheck.EXTRACTION_ROOT,
+            )
+        }
+
+        assertTrue("expected the xml-v33 copy to be reported in $hits", hits.any { "xml-v33" in it })
+        assertTrue("expected no complaint about the compliant xml copy in $hits", hits.none { it.startsWith("xml/") })
+    }
+
+    @Test
+    fun aResourceDirectoryWithNoXmlDirectoryYieldsNoCandidates() {
+        val res = Files.createTempDirectory("easyfact-res").toFile()
+        write(res, "values", "strings.xml", "<resources />")
+
+        assertEquals(emptyList<File>(), BackupRulesCheck.ruleFileCandidates(listOf(res), "data_extraction_rules"))
+    }
+
+    /** A rules file that is default-deny in shape but carries an `include`, so it is permissive. */
+    private fun includeAllRules() = extractionRules(extra = """<include domain="root" path="." />""")
+
+    private fun write(res: File, dir: String, name: String, text: String): File {
+        val target = File(File(res, dir).apply { mkdirs() }, name)
+        target.writeText(text)
+        return target
+    }
+
 }
