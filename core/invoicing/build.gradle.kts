@@ -19,6 +19,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.animalsniffer)
     id("easyfact.jvm-boundary")
 }
 
@@ -40,6 +41,22 @@ kotlin {
     }
 }
 
+// Android-membership gate: checks main-source bytecode against the API 31 signature, so a JDK 17
+// API that Android API 31 lacks (for example java.util.HexFormat) fails `check`. Main source only:
+// the JSR-105 and StAX verification oracle is legal in test source (D-04, AGENTS.md section 4).
+val mainSourceSet = sourceSets["main"]
+animalsniffer {
+    sourceSets = listOf(mainSourceSet)
+}
+
 dependencies {
+    // The artifact is a `.signature` file, which the plugin only finds through the `@signature`
+    // qualifier (artifact type), not as the default jar.
+    signature(libs.androidApi31Signature) {
+        artifact {
+            type = "signature"
+            extension = "signature"
+        }
+    }
     testImplementation(libs.junit)
 }
