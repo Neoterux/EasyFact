@@ -1,0 +1,130 @@
+# Copyright (C) 2026 the EasyFact contributors
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Runs every build gate on push and pull request. What each gate proves, and what
+# it cannot see, is written down in docs/build-invariants.md.
+#
+# Rules for editing this file:
+#   - Every third-party action is pinned by full commit SHA, with the version in a
+#     trailing comment. A tag can be repointed; a SHA cannot.
+#   - The job token is read-only and no secret is passed to any step. Nothing here
+#     publishes, signs or uploads.
+#   - Gradle is always the committed ./gradlew wrapper (pinned version, checksum and
+#     validated distribution URL), never a system Gradle.
+
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Deny everything by default; the job below grants the one thing it needs.
+permissions: {}
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    # An explicit shell makes GitHub use `bash -eo pipefail`, so a failing build
+    # piped through tee still fails the step.
+    shell: bash
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The job never pushes, so the token does not need to stay in .git/config.
+          persist-credentials: false
+
+      # gradle/gradle-daemon-jvm.properties pins toolchainVersion=25. A JDK 25 on the
+      # runner satisfies it; any other JDK would send the build to foojay to provision
+      # one on every run. Temurin is used because it is the distribution setup-java
+      # documents for a plain OpenJDK install. Only the major version is pinned: an
+      # exact patch release would silently stop receiving security fixes.
+      - name: Set up JDK 25 (Temurin)
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      # setup-gradle only caches Gradle's state and validates the wrapper jar; the
+      # build itself is still run through ./gradlew below. The default cache provider
+      # is a commercial service; 'basic' is the open-source one built on the plain
+      # GitHub Actions cache, which is all this project needs.
+      - name: Set up Gradle caching
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
+
+      # compileSdk is 37. The ubuntu-latest image ships an Android SDK and sets
+      # ANDROID_HOME, so use the image's own sdkmanager rather than a third-party
+      # setup action, and install only what is missing.
+      - name: Ensure the Android SDK platform and build tools are present
+        run: |
+          set -eu
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$sdk" ]; then
+            echo "ANDROID_HOME is not set on this runner image" >&2
+            exit 1
+          fi
+          sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+          missing=""
+          [ -d "$sdk/platforms/android-37.0" ] || missing="$missing platforms;android-37.0"
+          [ -d "$sdk/build-tools/36.0.0" ] || missing="$missing build-tools;36.0.0"
+          if [ -z "$missing" ]; then
+            echo "Android SDK platform 37.0 and build-tools 36.0.0 already present"
+            exit 0
+          fi
+          echo "Installing:$missing"
+          # `yes` is killed by SIGPIPE when sdkmanager stops reading, which pipefail
+          # would report as a failure; sdkmanager's own exit status is the one to keep.
+          set +o pipefail
+          # shellcheck disable=SC2086
+          yes | "$sdkmanager" --install $missing
+
+      - name: Run every check gate
+        run: ./gradlew check --configuration-cache-problems=fail
+
+      # A configuration-cache break is invisible to a single run: the first run
+      # simply stores a new entry. Running check a second time and requiring the
+      # reuse line is the regression guard that the cache still works. AGENTS.md
+      # section 10 forbids disabling the cache to get around a problem.
+      - name: Assert the configuration cache is reused on a second run
+        run: |
+          ./gradlew check --configuration-cache-problems=fail 2>&1 | tee check-second-run.log
+          if ! grep -n 'Configuration cache entry reused' check-second-run.log; then
+            echo "The second check run did not reuse the configuration cache entry." >&2
+            exit 1
+          fi
+
+      # The heavy release gates: size baseline, keep-rule hygiene and the release-dex
+      # host allowlist. The size gate prints a MEASURED line; fail if it never did,
+      # because a gate that measured nothing proves nothing.
+      - name: Run the release gates
+        run: |
+          ./gradlew verifyRelease --configuration-cache-problems=fail 2>&1 | tee verify-release.log
+          if ! grep -n '^MEASURED apk.bytes=' verify-release.log; then
+            echo "verifyRelease finished without measuring the release artifact." >&2
+            exit 1
+          fi
