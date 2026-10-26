@@ -33,6 +33,8 @@ class AppGatesPlugin : Plugin<Project> {
 
     override fun apply(project: Project) {
         project.plugins.withId("com.android.application") {
+            registerKeepRuleGate(project)
+
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
             components.onVariants(components.selector().withBuildType("release")) { variant ->
                 // Read the effective result from the variant instead of trusting that the DSL
@@ -47,5 +49,24 @@ class AppGatesPlugin : Plugin<Project> {
                 }
             }
         }
+    }
+
+    /**
+     * `verifyKeepRules` reads only the keep rules this project writes: `src/<variant>/keepRules/<name>.keep`.
+     *
+     * The scope is deliberate. The merged R8 configuration under
+     * `build/outputs/mapping/release/configuration.txt` also concatenates AGP's own defaults and
+     * every AAR's consumer rules, which the project does not write and must not be failed on;
+     * widening the input to that file would make the gate fail on code nobody here controls.
+     * AGP's R8 configuration analysis report is a human review aid and is intentionally not wired to `check`.
+     */
+    private fun registerKeepRuleGate(project: Project) {
+        val verify = project.tasks.register("verifyKeepRules", VerifyKeepRulesTask::class.java) {
+            group = "verification"
+            description = "Fails if a project-owned keep rule lacks a '# Reason:' line or is a blanket pattern."
+            keepRuleFiles.from(project.layout.projectDirectory.asFileTree.matching { include("src/*/keepRules/*.keep") })
+            displayRoot.set(project.layout.projectDirectory)
+        }
+        project.tasks.named("check") { dependsOn(verify) }
     }
 }
