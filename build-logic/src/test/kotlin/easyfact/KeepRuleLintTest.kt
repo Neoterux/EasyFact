@@ -98,6 +98,107 @@ class KeepRuleLintTest {
         assertEquals(emptyList<String>(), hits)
     }
 
+    @Test
+    fun aLeadingAtFileIsIndirection() {
+        // Confirmed against R8: a bare `@other.pro` is ProGuard's shorthand for `-include other.pro`
+        // and R8 honours it. The lint used to skip the line entirely — no reason requirement, no
+        // blanket check, no indirection check — because it carries no leading `-`.
+        val hits = lint(
+            """
+            # Reason: a reason does not make an unlinted rule file visible.
+            @extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun anUnreasonedAtFileAlsoNeedsAReason() {
+        // The `@` line is now a statement, so the reason rule reaches it too.
+        val hits = lint("@extra-rules.pro")
+
+        assertEquals(
+            listOf(
+                "fixture.keep:1: no preceding '# Reason:'",
+                "fixture.keep:1: -include/-basedirectory pulls in rules this gate never sees",
+            ),
+            hits,
+        )
+    }
+
+    @Test
+    fun aSecondDirectiveOnTheSameLineIsEvaluated() {
+        // Confirmed against R8: it reads a token stream, so a narrow rule does not shelter what
+        // follows it on the same line. The lint judged the statement by its first token alone.
+        val hits = lint(
+            """
+            # Reason: the narrow rule is fine; the include smuggled in beside it is not.
+            -keep class com.example.synthetic.Probe { <init>(); } -include extra-rules.pro
+            """,
+        )
+
+        assertEquals(
+            listOf("fixture.keep:2: -include/-basedirectory pulls in rules this gate never sees"),
+            hits,
+        )
+    }
+
+    @Test
+    fun aBlanketKeepHidingAfterANarrowOneIsStillBlanket() {
+        val hits = lint(
+            """
+            # Reason: the narrow rule is fine; the blanket keep hiding behind it is not.
+            -keep class com.example.synthetic.Probe { <init>(); } -keep class * { *; }
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun aBlanketDirectiveLaterOnTheSameLineIsStillBlanket() {
+        val hits = lint(
+            """
+            # Reason: the narrow rule is fine; switching shrinking off beside it is not.
+            -keep class com.example.synthetic.Probe { <init>(); } -dontshrink
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun anAnnotationFilterInsideAClassSpecificationIsNotIndirection() {
+        // `@` is also R8's annotation filter. Flagging every `@` token would reject this legitimate
+        // rule, so only a statement-leading `@file` counts — that is the whole of its grammar.
+        val hits = lint(
+            """
+            # Reason: entry points are marked with the Keep annotation and found reflectively.
+            -keep @androidx.annotation.Keep class com.example.synthetic.Probe { <init>(); }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
+    fun oneDirectivesArgumentsAreNotReadAsAnothers() {
+        // Arguments run to the next directive token, so the bare pattern belonging to a legal
+        // `-dontwarn` must not be attributed to the narrow `-keep` beside it, nor the reverse.
+        val hits = lint(
+            """
+            # Reason: narrow keep plus a package-scoped dontwarn, both legitimate.
+            -keep class com.example.synthetic.Probe { <init>(); } -dontwarn javax.annotation.**
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
     private fun lint(text: String) = KeepRuleLint.violations(text.trimIndent(), "fixture.keep")
 
     @Test

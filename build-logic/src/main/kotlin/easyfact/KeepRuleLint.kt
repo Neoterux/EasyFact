@@ -28,8 +28,13 @@ package easyfact
  *  - Blanket directives and patterns are rejected: they freeze reflection-reachable code and
  *    enlarge the shipped surface silently.
  *
- * A statement is any non-blank, non-comment line beginning with `-`. Following lines that do
- * not begin with `-` are treated as its continuation (a multi-line `{ ... }` member block).
+ * A statement is any non-blank, non-comment line beginning with `-` or `@`. Following lines that
+ * begin with neither are treated as its continuation (a multi-line `{ ... }` member block).
+ *
+ * Within a statement the policy is token-oriented, because R8 is: a line can carry more than one
+ * directive, and a directive's arguments run to the next directive token. Deciding a statement by
+ * the first token of its first line let `-keep class X { *; } -include other.pro` and a leading
+ * `@other.pro` both pass while R8 obeyed them.
  */
 object KeepRuleLint {
 
@@ -55,6 +60,9 @@ object KeepRuleLint {
     /**
      * Directives that name another rule file. Rules reached this way are applied by R8 but are
      * invisible to this gate, so a single `-include` would defeat both rules above at once.
+     *
+     * ProGuard's `@file` shorthand is the same control and is handled in [isIndirection], since it
+     * carries no leading `-`.
      */
     private val indirectionDirectives = setOf("-include", "-basedirectory")
 
@@ -93,9 +101,11 @@ object KeepRuleLint {
         return result
     }
 
-    private fun isStatementStart(trimmed: String) = trimmed.isNotEmpty() && !trimmed.startsWith("#") && trimmed.startsWith("-")
+    private fun isStatementStart(trimmed: String) =
+        trimmed.isNotEmpty() && !trimmed.startsWith("#") && (trimmed.startsWith("-") || trimmed.startsWith("@"))
 
-    private fun isContinuation(trimmed: String) = trimmed.isNotEmpty() && !trimmed.startsWith("#") && !trimmed.startsWith("-")
+    private fun isContinuation(trimmed: String) =
+        trimmed.isNotEmpty() && !trimmed.startsWith("#") && !trimmed.startsWith("-") && !trimmed.startsWith("@")
 
     private fun stripTrailingComment(line: String): String {
         val at = line.indexOf(" #")
@@ -114,35 +124,60 @@ object KeepRuleLint {
         return false
     }
 
-    private fun isIndirection(statement: String) = directiveOf(statement) in indirectionDirectives
+    /**
+     * True when any directive token of [statement] names another rule file.
+     *
+     * A leading `@file` is ProGuard's documented shorthand for `-include file`, and R8 honours it,
+     * so it counts. An `@` token anywhere else is an annotation filter inside a class
+     * specification (`-keep @androidx.annotation.Keep class *`) and is deliberately NOT flagged —
+     * flagging it would reject a legitimate rule. `@file` is a top-level form, so first-token
+     * position is the whole of its grammar.
+     */
+    private fun isIndirection(statement: String): Boolean {
+        val tokens = tokensOf(statement)
+        if (tokens.firstOrNull()?.startsWith("@") == true) return true
+        return tokens.any { it.startsWith("-") && it.substringBefore(',') in indirectionDirectives }
+    }
 
     /**
-     * The directive of [statement] with any `,modifier` suffix removed, or null when there is none.
+     * Every directive token of [statement], paired with the arguments that belong to it.
      *
-     * The suffix strip is CR-02. R8 accepts keep modifiers on the directive itself
-     * (`-keep,allowobfuscation,allowshrinking class * { *; }`), and comparing the raw first token
-     * against [keepFamily] by equality missed every modifier form — so the broadest possible keep
-     * rule passed the gate untouched.
+     * This is the token-oriented pass. R8 reads a configuration as a token stream, not a stream of
+     * lines whose first word decides everything, so `-keep class X { *; } -include other.pro` is
+     * two directives on one line and `-keep class * { *; }` hidden after a narrow rule is a blanket
+     * keep. Judging a statement by its first token alone missed both: the lint reported green and
+     * R8 obeyed the rule. Arguments run to the next directive token, so one directive's class
+     * specification is never read as another's.
+     *
+     * The `,modifier` suffix is stripped from each directive, because R8 accepts keep modifiers on
+     * the directive itself (`-keep,allowobfuscation,allowshrinking class * { *; }`).
      */
-    private fun directiveOf(statement: String): String? =
-        tokensOf(statement).firstOrNull()?.substringBefore(',')
+    private fun directives(statement: String): List<Pair<String, List<String>>> {
+        val tokens = tokensOf(statement)
+        val result = ArrayList<Pair<String, List<String>>>()
+        for ((i, token) in tokens.withIndex()) {
+            if (!token.startsWith("-")) continue
+            val arguments = tokens.drop(i + 1).takeWhile { !it.startsWith("-") }
+            result += token.substringBefore(',') to arguments
+        }
+        return result
+    }
 
     private fun tokensOf(statement: String) =
         statement.split(Regex("[\\s{};]+")).filter { it.isNotEmpty() }
 
-    private fun isBlanket(statement: String): Boolean {
-        val tokens = tokensOf(statement)
-        val directive = directiveOf(statement) ?: return false
-        return when {
-            directive in blanketDirectives -> true
-            directive == "-dontwarn" -> tokens.drop(1).flatMap { it.split(',') }.any { isBarePattern(it) }
-            directive in keepFamily -> {
-                val keyword = tokens.indexOfFirst { it in classKeywords }
-                keyword >= 0 && keyword + 1 < tokens.size && isBarePattern(tokens[keyword + 1])
+    private fun isBlanket(statement: String): Boolean =
+        directives(statement).any { (directive, arguments) ->
+            when {
+                directive in blanketDirectives -> true
+                directive == "-dontwarn" -> arguments.flatMap { it.split(',') }.any { isBarePattern(it) }
+                directive in keepFamily -> {
+                    val keyword = arguments.indexOfFirst { it in classKeywords }
+                    keyword >= 0 && keyword + 1 < arguments.size && isBarePattern(arguments[keyword + 1])
+                }
+                else -> false
             }
-            else -> false
         }
-    }
 
     private fun isBarePattern(pattern: String) = pattern == "*" || pattern == "**"
 }
