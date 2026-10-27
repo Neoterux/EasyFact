@@ -59,10 +59,10 @@ object Money {
     private const val RATE_SCALE = 2
 
     /** A monetary amount, two decimals. */
-    fun amount(value: BigDecimal): String = TODO("02-05 Task 1")
+    fun amount(value: BigDecimal): String = render(value, AMOUNT_SCALE)
 
     /** A `cantidad`, six decimals under schema 1.1.0. */
-    fun quantity(value: BigDecimal): String = TODO("02-05 Task 1")
+    fun quantity(value: BigDecimal): String = render(value, QUANTITY_SCALE)
 
     /**
      * A unit price, six decimals under schema 1.1.0.
@@ -71,11 +71,11 @@ object Money {
      * `cantidad` times `precioUnitario` disagree with `precioTotalSinImpuesto`, and the SRI
      * rejects that disagreement. Plan 02-09 settles the scale against the vendored XSD.
      */
-    fun unitPrice(value: BigDecimal): String = TODO("02-05 Task 1")
+    fun unitPrice(value: BigDecimal): String = render(value, UNIT_PRICE_SCALE)
 
     /** A `tarifa` percentage, two decimals. */
-    fun rate(value: BigDecimal): String = TODO("02-05 Task 1")
+    fun rate(value: BigDecimal): String = render(value, RATE_SCALE)
 
-    @Suppress("UNUSED_PARAMETER")
-    private fun render(value: BigDecimal, scale: Int): String = TODO("02-05 Task 1")
+    private fun render(value: BigDecimal, scale: Int): String =
+        value.setScale(scale, RoundingMode.HALF_UP).toPlainString()
 }

@@ -20,7 +20,6 @@ package com.neoterux.easyfact.invoicing.factura
 import com.neoterux.easyfact.invoicing.xml.CanonicalDocument
 import com.neoterux.easyfact.invoicing.xml.CanonicalEmitter
 import java.math.BigDecimal
-import java.math.RoundingMode
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -31,13 +30,13 @@ import java.util.Locale
  * The Spanish strings below are the SRI's element names, kept verbatim because they are protocol
  * identifiers and renaming them would break the mapping to the specification.
  *
- * Scale is applied here, at the serialization boundary, and nowhere earlier: money has two
- * decimals, quantities and unit prices six, always rounded half-up. `toPlainString` never writes
- * an exponent, and it does not depend on the default locale (the date pattern below is pinned to
- * [Locale.ROOT] for the same reason).
+ * Scale is applied at the serialization boundary and nowhere earlier, by [Money], which is the
+ * single rendering path: money has two decimals, quantities and unit prices six, always rounded
+ * half-up and never written with an exponent. The date pattern below is pinned to [Locale.ROOT]
+ * for the same reason — nothing here may depend on the default locale.
  *
  * The six decimals on `cantidad` and `precioUnitario` are deliberate and differ from the two the
- * phase plan named. Two is the SRI's rule for monetary totals, which [MONEY_SCALE] applies; the
+ * phase plan named. Two is the SRI's rule for monetary totals, which [Money.amount] applies; the
  * factura schema allows a unit price six. Rounding a unit price to two before multiplying is what
  * makes `cantidad * precioUnitario` disagree with `precioTotalSinImpuesto`, and that disagreement
  * is itself a rejection, so the wider scale is the safer of the two. The schema gate planned for
@@ -45,10 +44,6 @@ import java.util.Locale
  * this comment, the gate wins.
  */
 object FacturaWriter {
-
-    private const val MONEY_SCALE = 2
-    private const val QUANTITY_SCALE = 6
-    private const val UNIT_PRICE_SCALE = 6
 
     private val ISSUE_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
 
@@ -120,8 +115,8 @@ object FacturaWriter {
             xml.open("detalle")
             element(xml, "codigoPrincipal", line.mainCode)
             element(xml, "descripcion", line.description)
-            element(xml, "cantidad", scaled(line.quantity, QUANTITY_SCALE))
-            element(xml, "precioUnitario", scaled(line.unitPrice, UNIT_PRICE_SCALE))
+            element(xml, "cantidad", Money.quantity(line.quantity))
+            element(xml, "precioUnitario", Money.unitPrice(line.unitPrice))
             element(xml, "descuento", money(line.discount))
             element(xml, "precioTotalSinImpuesto", money(line.totalWithoutTaxes))
             xml.open("impuestos")
@@ -129,7 +124,7 @@ object FacturaWriter {
                 xml.open("impuesto")
                 element(xml, "codigo", tax.taxCode)
                 element(xml, "codigoPorcentaje", tax.rateCode)
-                element(xml, "tarifa", money(tax.rate))
+                element(xml, "tarifa", Money.rate(tax.rate))
                 element(xml, "baseImponible", money(tax.taxableBase))
                 element(xml, "valor", money(tax.amount))
                 xml.close()
@@ -153,7 +148,5 @@ object FacturaWriter {
         xml.open(name).text(value).close()
     }
 
-    private fun money(value: BigDecimal): String = scaled(value, MONEY_SCALE)
-
-    private fun scaled(value: BigDecimal, scale: Int): String = value.setScale(scale, RoundingMode.HALF_UP).toPlainString()
+    private fun money(value: BigDecimal): String = Money.amount(value)
 }
