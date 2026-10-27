@@ -324,6 +324,60 @@ class KeepRuleLintTest {
     }
 
     @Test
+    fun anAnnotationFilterThatNarrowsNothingIsStillBlanket() {
+        // R1, a regression. The FI-02 exemption above was written as "any argument starting with
+        // `@`", which also swallowed the three spellings below — each caught before that fix and
+        // not after. `@**` matches every annotation, so the first rule keeps every annotated class
+        // and all its members; `@interface` is not a filter at all but the class-type keyword.
+        val spellings = listOf(
+            "-keep @** class * { *; }",
+            "-keep @* class * { *; }",
+            "-keep @interface * { *; }",
+        )
+
+        for (rule in spellings) {
+            val hits = lint(
+                """
+                # Reason: a justification does not make an unscoped filter narrow.
+                $rule
+                """,
+            )
+
+            assertEquals("$rule should be blanket", listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+        }
+    }
+
+    @Test
+    fun aPartiallyWildcardedAnnotationFilterIsAlsoBlanket() {
+        // Deliberate, and the reason it is pinned: `@com.example.**` does narrow, so this is the
+        // conservative half of the R1 fix rather than a consequence nobody chose. A false failure
+        // here is loud and is fixed by naming the annotation; a false pass would ship in silence.
+        val hits = lint(
+            """
+            # Reason: a package-scoped filter still leaves the class pattern bare.
+            -keep @com.example.synthetic.** class * { *; }
+            """,
+        )
+
+        assertEquals(listOf("fixture.keep:2: blanket keep/dontwarn"), hits)
+    }
+
+    @Test
+    fun aNamedAnnotationFilterStillExemptsARuleWithAMemberBlock() {
+        // The FI-02 exemption must survive the R1 fix in its fuller form too: the case above has
+        // no member block, so on its own it would not notice an over-tightening that only bites
+        // once `{ *; }` is present.
+        val hits = lint(
+            """
+            # Reason: entry points are marked with the Keep annotation and found reflectively.
+            -keep @androidx.annotation.Keep class * { *; }
+            """,
+        )
+
+        assertEquals(emptyList<String>(), hits)
+    }
+
+    @Test
     fun anExtendsAnnotationFilterIsNotIndirection() {
         val hits = lint(
             """

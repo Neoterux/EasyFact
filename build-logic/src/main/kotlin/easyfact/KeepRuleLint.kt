@@ -232,14 +232,34 @@ object KeepRuleLint {
         rule.directive in blanketDirectives -> true
         rule.directive == "-dontwarn" -> rule.arguments.flatMap { it.split(',') }.any { isBarePattern(it) }
         rule.directive in keepFamily -> {
-            // An annotation filter scopes the rule to classes carrying that annotation, so
-            // `-keep @Keep class *` is narrow by intent and is not a blanket keep.
             val keyword = rule.arguments.indexOfFirst { it in classKeywords }
-            rule.arguments.none { it.startsWith("@") } &&
+            rule.arguments.none { isNarrowingAnnotationFilter(it) } &&
                 keyword >= 0 && keyword + 1 < rule.arguments.size && isBarePattern(rule.arguments[keyword + 1])
         }
         else -> false
     }
+
+    /**
+     * True when [argument] is an annotation filter that genuinely narrows a keep rule.
+     *
+     * `-keep @androidx.annotation.Keep class *` is scoped by the annotation, so it is not a
+     * blanket keep. Exempting on a leading `@` alone was too generous: two spellings start with
+     * `@`, narrow nothing, and bought the same exemption.
+     *
+     *  - **A wildcard filter.** `@**` and `@*` match every annotation, so
+     *    `-keep @** class * { *; }` keeps every annotated class and all its members. A filter is
+     *    accepted here only when it names an annotation outright, with no `*` or `?` in it.
+     *  - **`@interface`**, which is not a filter at all but the class-type keyword for an
+     *    annotation declaration, and is already listed in [classKeywords].
+     *
+     * A partially wildcarded filter such as `@com.example.**` does narrow, and is still rejected.
+     * That is deliberate and matches how the rest of this policy errs: a false failure is loud
+     * and is fixed by naming the annotation, while a false pass ships silently.
+     */
+    private fun isNarrowingAnnotationFilter(argument: String): Boolean =
+        argument.startsWith("@") &&
+            argument !in classKeywords &&
+            argument.none { it == '*' || it == '?' }
 
     /** True when the contiguous comment block directly above [statementIndex] has a `# Reason:` line. */
     private fun hasReasonAbove(lines: List<String>, statementIndex: Int): Boolean {
