@@ -54,8 +54,10 @@ import org.junit.Test
  *   the state and does not submit again.
  * - `poll`: asks authorization about the recorded key until a final answer or the poll window ends.
  *
- * Nothing printed or logged here contains certificate bytes, the password, or a full identification
- * number. Issuer renderings are reported as attribute types and value kinds, never as values.
+ * Nothing printed, logged or asserted here contains certificate bytes, the password, or a full
+ * identification number: every failure message goes through [ProbeRunLog.mask] for the same reason
+ * the log does, because an assertion message is written to the JUnit XML and the HTML report.
+ * Issuer renderings are reported as attribute types and value kinds, never as values.
  */
 class CelcerProbeTest {
 
@@ -128,7 +130,10 @@ class CelcerProbeTest {
             state.save(ProbeRunState.Record(accessKey, octets, reading.states.first(), receivedAt.toEpochMilli()))
             log.line("submit: reception recorded; a re-run will poll instead of resubmitting")
         }
-        assertTrue("reception did not answer RECIBIDA: states=${reading.states} messages=${reading.messages}", received)
+        // The SRI echoes the RUC back inside `informacionAdicional`, so the failure message is
+        // masked exactly as the run log is: an assertion message reaches the JUnit XML and the
+        // HTML report, and neither is a place for a full identification number.
+        assertTrue(ProbeRunLog.mask("reception did not answer RECIBIDA: states=${reading.states} messages=${reading.messages}"), received)
     }
 
     @Test
@@ -171,12 +176,12 @@ class CelcerProbeTest {
             }
             if (Instant.now().plus(delay).isAfter(deadline)) {
                 log.line("poll: no final state within the window; last states $finalStates")
-                fail("no final authorization state within the poll window; last states=$finalStates")
+                fail(ProbeRunLog.mask("no final authorization state within the poll window; last states=$finalStates"))
             }
             Thread.sleep(delay.toMillis())
             delay = minOf(delay.multipliedBy(3).dividedBy(2), MAX_POLL_DELAY)
         }
-        assertTrue("final states were $finalStates, not AUTORIZADO; messages=$finalMessages", "AUTORIZADO" in finalStates)
+        assertTrue(ProbeRunLog.mask("final states were $finalStates, not AUTORIZADO; messages=$finalMessages"), "AUTORIZADO" in finalStates)
     }
 
     private fun valuesFor(config: ProbeConfig): ProbeDocumentFixture.Values {

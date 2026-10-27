@@ -515,5 +515,22 @@ class ProbeEnvironmentGuardTest {
         assertEquals("ruc ***001 key ***123", ProbeRunLog.mask("ruc $ruc key $key"))
         assertEquals("short 123456789 kept", ProbeRunLog.mask("short 123456789 kept"))
         assertEquals("mail ***@example.com", ProbeRunLog.mask("mail billing@example.com"))
+
+        // The shape the SRI actually returned when the taxpayer was not registered: the code's own
+        // text says the structure is wrong, and the real reason -- carrying the RUC -- is in
+        // `informacionAdicional`. This is the string that reaches a failed assertion.
+        val reception = ThrowawaySoap.Message(
+            code = "35",
+            text = "ARCHIVO NO CUMPLE ESTRUCTURA XML",
+            type = "ERROR",
+            additionalInformation = "No existe un contribuyente registrado con el RUC $ruc",
+        )
+        val failureMessage = ProbeRunLog.mask("reception did not answer RECIBIDA: states=[DEVUELTA] messages=[$reception]")
+        assertFalse("a 10-or-more digit run survived masking: $failureMessage", Regex("[0-9]{10,}").containsMatchIn(failureMessage))
+        assertFalse(failureMessage.contains(ruc))
+        assertTrue(failureMessage, failureMessage.contains("***" + ruc.takeLast(3)))
+        // The parts that carry no identifier are left readable, because the message has to stay useful.
+        assertTrue(failureMessage, failureMessage.contains("ARCHIVO NO CUMPLE ESTRUCTURA XML"))
+        assertTrue(failureMessage, failureMessage.contains("DEVUELTA"))
     }
 }
