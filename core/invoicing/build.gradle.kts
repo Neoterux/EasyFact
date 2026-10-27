@@ -49,6 +49,16 @@ animalsniffer {
     sourceSets = listOf(mainSourceSet)
 }
 
+// The test-environment probe (`CelcerProbeTest`) is configured through an environment variable.
+// Gradle does not treat an environment variable as a task input unless it is declared, so without
+// this line a second `./gradlew test` run, after the owner configures their machine, would report
+// the task UP-TO-DATE and silently never run the probe. Declaring it makes a configuration change
+// re-run the task. The variable's value is only a path: editing the file it names, or wanting a
+// fresh submission against an unchanged configuration, still needs `--rerun`.
+tasks.withType<Test>().configureEach {
+    inputs.property("probeConfig", providers.environmentVariable("EASYFACT_PROBE_CONFIG").orElse(""))
+}
+
 dependencies {
     // The artifact is a `.signature` file, which the plugin only finds through the `@signature`
     // qualifier (artifact type), not as the default jar.

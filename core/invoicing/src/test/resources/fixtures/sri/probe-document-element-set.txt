@@ -1,0 +1,68 @@
+# Element set pinned for the test-environment probe document.
+#
+# 1. What this file pins. The element paths that FacturaWriter emits for the synthetic input of
+#    ProbeDocumentFixture, one slash-joined path per line, in document order, each path once.
+#    Both the CI shape test and the probe's pre-submission assertion compare the document against
+#    this file, so it is a statement about real writer output and not about a transcription of it.
+#    It records element names only; no value appears here.
+#
+# 2. It tracks the writer. When the writer's output for that fixture changes, this file is
+#    regenerated in the same change. Plan 02-05, Task 2, which widens FacturaWriter to full 1.1.0
+#    coverage, is the single owner of that regeneration; no other plan edits this file.
+#
+# 3. It is not the historical record. What the one real test-environment submission carried is
+#    frozen in docs/sri-electronic-invoicing.md, under the exercised-set marker, and in the plan 02-04
+#    summary. Those are written once, from this file as it stands in that wave, and are never edited
+#    afterwards to follow a widened writer. A later re-run of the probe gets its own dated finding.
+#
+# Lines starting with '#' and blank lines are ignored.
+factura
+factura/infoTributaria
+factura/infoTributaria/ambiente
+factura/infoTributaria/tipoEmision
+factura/infoTributaria/razonSocial
+factura/infoTributaria/nombreComercial
+factura/infoTributaria/ruc
+factura/infoTributaria/claveAcceso
+factura/infoTributaria/codDoc
+factura/infoTributaria/estab
+factura/infoTributaria/ptoEmi
+factura/infoTributaria/secuencial
+factura/infoTributaria/dirMatriz
+factura/infoFactura
+factura/infoFactura/fechaEmision
+factura/infoFactura/dirEstablecimiento
+factura/infoFactura/obligadoContabilidad
+factura/infoFactura/tipoIdentificacionComprador
+factura/infoFactura/razonSocialComprador
+factura/infoFactura/identificacionComprador
+factura/infoFactura/totalSinImpuestos
+factura/infoFactura/totalDescuento
+factura/infoFactura/totalConImpuestos
+factura/infoFactura/totalConImpuestos/totalImpuesto
+factura/infoFactura/totalConImpuestos/totalImpuesto/codigo
+factura/infoFactura/totalConImpuestos/totalImpuesto/codigoPorcentaje
+factura/infoFactura/totalConImpuestos/totalImpuesto/baseImponible
+factura/infoFactura/totalConImpuestos/totalImpuesto/valor
+factura/infoFactura/propina
+factura/infoFactura/importeTotal
+factura/infoFactura/moneda
+factura/infoFactura/pagos
+factura/infoFactura/pagos/pago
+factura/infoFactura/pagos/pago/formaPago
+factura/infoFactura/pagos/pago/total
+factura/detalles
+factura/detalles/detalle
+factura/detalles/detalle/codigoPrincipal
+factura/detalles/detalle/descripcion
+factura/detalles/detalle/cantidad
+factura/detalles/detalle/precioUnitario
+factura/detalles/detalle/descuento
+factura/detalles/detalle/precioTotalSinImpuesto
+factura/detalles/detalle/impuestos
+factura/detalles/detalle/impuestos/impuesto
+factura/detalles/detalle/impuestos/impuesto/codigo
+factura/detalles/detalle/impuestos/impuesto/codigoPorcentaje
+factura/detalles/detalle/impuestos/impuesto/tarifa
+factura/detalles/detalle/impuestos/impuesto/baseImponible
+factura/detalles/detalle/impuestos/impuesto/valor
