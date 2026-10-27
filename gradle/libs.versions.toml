@@ -9,6 +9,8 @@ material = "1.10.0"
 kotlin = "2.4.21"
 animalSniffer = "2.0.1"
 androidApi31Signature = "12_r1"
+xades4j = "2.4.1"
+bouncycastle = "1.86"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -21,6 +23,10 @@ agpGradleApi = { group = "com.android.tools.build", name = "gradle-api", version
 # Build-time only (Animal Sniffer `signature` configuration); never on a runtime classpath.
 # camelCase on purpose: a bare `android` first segment collides with the `android` extension.
 androidApi31Signature = { group = "net.sf.androidscents.signature", name = "android-api-level-31", version.ref = "androidApi31Signature" }
+# Test-scope coordinates, kept off every shipping classpath by `DependencyPolicy`.
+xades4j = { group = "com.googlecode.xades4j", name = "xades4j", version.ref = "xades4j" }
+bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk18on", version.ref = "bouncycastle" }
+bcprov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

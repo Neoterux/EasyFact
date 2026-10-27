@@ -59,4 +59,6 @@ dependencies {
         }
     }
     testImplementation(libs.junit)
+    // Synthetic certificates and identifiers. Test scope only: never `implementation`.
+    testImplementation(project(":core:testing"))
 }

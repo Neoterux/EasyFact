@@ -58,5 +58,9 @@ dependencies {
             extension = "signature"
         }
     }
+    // Test-fixture crypto: mints synthetic certificates. Legal here only; DependencyPolicy denies it
+    // on every shipping classpath.
+    implementation(libs.bcpkix)
+    implementation(libs.bcprov)
     testImplementation(libs.junit)
 }

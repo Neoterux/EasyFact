@@ -70,6 +70,17 @@ object DependencyPolicy {
         // API and costs 2.4 MB of dex after R8. It is legal on a test classpath and forbidden on a
         // shipping one, and this entry is what makes that a build failure rather than a review hope.
         "org.bouncycastle",
+        // xades4j is the independent XAdES verifier used as a test oracle (NFR-05). It is LGPL and
+        // drags Guava, Guice and JAXB with it; none of that may reach a device.
+        "com.googlecode.xades4j",
+        // Apache Santuario arrives transitively through xades4j on the test classpath. Adopting it
+        // in the shipping runtime is a separate owner decision with measured sizes, not a drift.
+        "org.apache.santuario",
+        // Guice is xades4j's injector; it has no place in the shipping runtime.
+        "com.google.inject",
+        // JAXB (xades4j's binding layer) is absent from Android and heavy where it can be bundled.
+        "jakarta.xml.bind",
+        "org.glassfish.jaxb",
     )
 
     /**
@@ -102,6 +113,39 @@ object DependencyPolicy {
         "org.jetbrains.kotlin:kotlin-stdlib",
         "org.jetbrains:annotations",
     )
+
+    /**
+     * `:core:testing` is the one module that may carry BouncyCastle: it mints the synthetic
+     * certificates every signing test needs. Everything else in [JVM_ALLOWED] still applies.
+     * The group prefix covers `bcpkix-jdk18on`, `bcprov-jdk18on` and `bcutil-jdk18on`.
+     */
+    val TESTING_ALLOWED: List<String> = JVM_ALLOWED + "org.bouncycastle"
+
+    /**
+     * [DENIED] minus BouncyCastle. Derived by filtering, never re-typed, so a future denylist entry
+     * is inherited here automatically. Denial wins over allowance in [violations], so leaving
+     * `org.bouncycastle` in this list would defeat [TESTING_ALLOWED].
+     */
+    val TESTING_DENIED: List<String> = DENIED.filter { it != "org.bouncycastle" }
+
+    /** The allow/deny lists one module's `verifyDependencyPolicy` runs against. */
+    data class Profile(
+        val allowed: List<String>,
+        val denied: List<String>,
+        val allowedProjects: List<String>,
+        val deniedProjects: List<String>,
+    )
+
+    /**
+     * The policy profile for the plain JVM module at [projectPath]. `:core:testing` is the single
+     * exception to the shared allowlist: it is a test-helper module whose output never reaches a
+     * device, and [APP_DENIED_PROJECTS] already keeps it off `:app`. Every other path gets the
+     * plain-JVM profile: the Kotlin standard library only, with no project dependencies allowed.
+     */
+    fun profileFor(projectPath: String): Profile = when (projectPath) {
+        ":core:testing" -> Profile(TESTING_ALLOWED, TESTING_DENIED, emptyList(), emptyList())
+        else -> Profile(JVM_ALLOWED, DENIED, emptyList(), emptyList())
+    }
 
     /**
      * Violation lines for [identifiers], sorted and de-duplicated; empty when the graph is clean.
