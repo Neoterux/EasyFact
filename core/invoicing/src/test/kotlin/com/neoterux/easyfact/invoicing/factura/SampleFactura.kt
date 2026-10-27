@@ -17,6 +17,8 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
+import com.neoterux.easyfact.invoicing.accesskey.AccessKey
+import com.neoterux.easyfact.invoicing.result.Outcome
 import com.neoterux.easyfact.invoicing.xml.CanonicalDocument
 import com.neoterux.easyfact.testing.SyntheticIdentifiers
 import java.math.BigDecimal
@@ -28,12 +30,20 @@ import java.time.LocalDate
  */
 object SampleFactura {
 
-    /**
-     * A 49-digit key assembled at run time, so no identifier-shaped literal sits in the source.
-     * The check digit is not meaningful here: the writer does not validate the key.
-     */
-    private val accessKey: String =
-        listOf("27102026", "01", SyntheticIdentifiers.RUC, "1", "001003", "000990064", "12345678", "1", "0").joinToString("")
+    /** A valid 49-digit key, generated rather than written down so that no identifier-shaped literal sits in the source. */
+    private val accessKey: String = (
+        AccessKey.of(
+            issueDate = LocalDate.of(2026, 10, 27),
+            documentTypeCode = "01",
+            issuerRuc = SyntheticIdentifiers.RUC,
+            environmentCode = "1",
+            establishment = "001",
+            emissionPoint = "003",
+            sequential = 990064L,
+            numericCode = "12345678",
+            emissionTypeCode = "1",
+        ) as Outcome.Ok
+        ).value.digits
 
     fun factura(): Factura = Factura(
         taxInfo = TaxInfo(
