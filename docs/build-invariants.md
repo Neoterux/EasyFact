@@ -39,6 +39,18 @@ but the workflow file itself is unexercised until its first push, and that first
 run is also the first measurement of the release-size tolerance on a machine other
 than the one that recorded the baseline (section 6).
 
+This page was last re-read, section by section, against `build-logic` at commit
+`93effbe`. To check whether it is still current, run:
+
+```bash
+git log -1 --format=%h -- build-logic
+```
+
+If that prints a different hash, a gate has changed since the page was read and
+the page has not been read against the current gates. The statements in section 5
+about what the keep-rule gate misses are measurements taken at that commit, not
+claims inherited from elsewhere.
+
 Every gate has the same shape, which is also the rule for adding one (see
 "Canary drills" below): a pure Kotlin policy in the included `build-logic`
 build, unit-tested against synthetic inputs including a failing one, wrapped by a
@@ -73,6 +85,20 @@ literal. The XML-DSig and StAX APIs are in the JDK and absent from Android, so
 they may be used in test source as a verification oracle and never in main code
 (AGENTS.md section 4).
 
+The match is a regular-expression search over the class file's constant-pool
+UTF-8 text, not a parse of descriptors. A forbidden prefix is matched as a
+standalone name, as a descriptor type that follows another descriptor token (a
+parameter after a primitive code, `[`, `(` or the `;` of a preceding type), and
+in its dotted form for reflection strings. The second shape exists because the
+first alone missed a forbidden type that followed a primitive in a method
+descriptor.
+
+The gate also fails, before any verdict, when its scan could not have meant
+anything: when it visited zero class files, or when the forbidden-package list is
+empty. In either case "no violations found" would mean nothing was looked at, so
+the task reports it as a scan that did not happen, separately from a boundary
+breach.
+
 **Command.** `./gradlew :core:invoicing:verifyPortableBoundary
 :core:testing:verifyPortableBoundary` (reached by `check`).
 
@@ -86,7 +112,10 @@ rule lists and cannot know which other JDK APIs Android API 31 lacks; that is
 the next gate's job. It reads only each module's own main output, never a
 dependency jar, so it relies on the dependency policy (section 8) keeping those
 modules to the Kotlin standard library. It cannot see a class name assembled at
-runtime, and it cannot see test source, by design.
+runtime, and it cannot see test source, by design. Those two preconditions guard
+against a mis-wired input, not against a wrong one: a scan that visits one
+unrelated class file passes them. The failing fixtures pin the precondition
+function itself; the task's wiring around it has no fixture of its own.
 
 ## 3. Android API 31 membership: `animalsnifferMain`
 
@@ -139,11 +168,43 @@ class that was then reverted, not by an assertion that remains in the build.
 
 ## 5. Keep-rule hygiene: `verifyKeepRules`
 
-**What it enforces.** Every project-owned keep rule has a `# Reason:` comment
-directly above it, and none is blanket: no `-dontshrink`, `-dontoptimize`,
-`-dontobfuscate` or `-ignorewarnings`, no keep-family rule over a bare `*` or
-`**`, no `-dontwarn **`. The task fails if its input collection is empty, so a
-mis-wired glob cannot certify nothing.
+**What it enforces.** Every project-owned keep rule has a `# Reason:` comment in
+the comment block directly above the line it begins on, and none is blanket. The
+task also fails if its input collection is empty, so a mis-wired glob cannot
+certify nothing.
+
+The file is read as one token stream, the way R8 reads a configuration, not line
+by line: comments and newlines are both whitespace, a `#` opens a comment only at
+the start of a token, a `{` moves the brace depth only for a directive that can
+take a class specification, and a rule begins at any depth-0 token that starts
+with `-` or `@`. The two qualifications are not pedantry: `-printmapping out#x.txt`
+and `-printmapping out{x.txt` are both legal R8, and each used to hide every rule
+that followed it on the line.
+
+What is refused:
+
+- `-dontshrink`, `-dontoptimize`, `-dontobfuscate` and `-ignorewarnings`, outright.
+- `-dontwarn` when any of its comma-separated arguments is exactly `*` or `**`.
+- A keep-family directive (`-keep`, `-keepclassmembers`,
+  `-keepclasseswithmembers`, `-keepnames`, `-keepclassmembernames`,
+  `-keepclasseswithmembernames`, with or without comma-separated modifiers) when
+  the token immediately after its class-type keyword is exactly `*` or `**`. The
+  class-type keywords are `class`, `interface`, `enum`, `@interface` and the
+  negated `!class`, `!interface` and `!enum`.
+- `-include` and `-basedirectory`, and ProGuard's `@file` shorthand wherever a
+  rule can begin: they apply rules from a file this gate never reads.
+
+The keep-family refusal has one exemption: a rule that carries an annotation
+filter naming an annotation outright. An annotation filter scopes the rule to
+classes carrying that annotation, so `-keep @androidx.annotation.Keep class *`
+is narrow by intent and passes. "Outright" is the part a reader will otherwise
+guess wrong. The filter must contain no `*` and no `?`, so `-keep @** class * {*;}`
+and `-keep @* class * {*;}` match every annotation, narrow nothing, and are
+refused. `@interface` is the class-type keyword for an annotation declaration
+rather than a filter at all, so `-keep @interface * {*;}` is refused too. A
+partially wildcarded filter such as `@com.example.**` does narrow and is
+nevertheless refused. That asymmetry is deliberate: a false failure is loud and is
+answered by naming the annotation, while a false pass ships in silence.
 
 **Command.** `./gradlew :app:verifyKeepRules` (reached by both `check` and
 `verifyRelease`).
@@ -152,8 +213,32 @@ mis-wired glob cannot certify nothing.
 `VerifyKeepRulesTask.kt`; failing fixtures in `KeepRuleLintTest.kt`. It reads
 `app/src/<variant>/keepRules/<name>.keep` only.
 
-**What it cannot see.** It covers only the keep rules this project writes. AGP's
-own default rules and every AAR's consumer rules are merged into
+**What it cannot see.** Two limits sit inside the gate's own scope. Both were
+observed by running the lint at the `build-logic` commit recorded in the opening
+section of this page, with a positive control (`-keep class * { *; }`, which is
+refused) so that "no violation" could not mean a mis-wired probe. The list is
+tied to that commit and has changed before: the rewrite of the annotation-filter
+exemption moved `-keep @** class * {*;}` from passing to refused, which is why
+this page records a commit hash rather than a date.
+
+- *Blanket spellings that pass.* `-keep class*{*;}` (no whitespace, so `class*`
+  is one token and never matches a class-type keyword); `-keep class !a.B,* {*;}`
+  (the token after the keyword is a negated-list argument, not a bare pattern);
+  and `-keep !@interface * { *; }` (the keyword list carries `!class`,
+  `!interface` and `!enum` but no negated form of the annotation keyword, so no
+  class-type keyword is found and the bare pattern after it is never reached).
+  The notion of "blanket" is shallow: it is a bare-token comparison, not an
+  evaluation of what the pattern matches. Whether to harden it is an open
+  decision, not a settled one, so a green `verifyKeepRules` is not proof that no
+  blanket keep ships.
+- *A false positive.* `-keep public @Anno class X` is reported as rule-file
+  indirection, because a modifier between the directive and the `@` breaks the
+  annotation-filter exemption and the `@` is read as an include shorthand. It
+  fails closed: it is a spurious failure, never a silent pass. Reordering to
+  `-keep @Anno public class X` avoids it.
+
+Beyond the gate's own scope, it covers only the keep rules this project writes.
+AGP's own default rules and every AAR's consumer rules are merged into
 `app/build/outputs/mapping/release/configuration.txt`, each section labelled with
 its source, so a library that starts contributing a blanket rule is attributable
 by hand but is not failed automatically. AGP's R8 configuration analysis report
@@ -165,7 +250,12 @@ is a review aid and is deliberately not wired to any gate.
 committed baseline in `app/size-baseline.properties` plus a fixed tolerance of
 1024 bytes. Sizes come from AGP's own `SingleArtifact.APK` and
 `SingleArtifact.BUNDLE`, and the task prints a `MEASURED apk.bytes=...` line on
-every run.
+every run. A measurement is rejected before it is compared when the release APK
+listing names no APK, or when any named artifact is missing or measures zero
+bytes, so a build that produced nothing fails as a measurement failure instead of
+passing as a very small release. The check and `recordReleaseSizeBaseline` share
+that measurement, so a broken build can neither satisfy the gate nor be written
+into the baseline.
 
 **Command.** `./gradlew :app:checkReleaseSize` (reached by `verifyRelease`, not
 by `check`). To move the baseline see "Raising the size baseline" below;
@@ -177,7 +267,8 @@ constant in `AppGatesPlugin.kt`; failing fixtures in `SizeBaselineTest.kt`.
 
 **What it cannot see.** The comparison is one-sided: a smaller artifact is never
 a violation, so a sudden drop (for example, R8 removing something it should not)
-goes unnoticed. The baseline was shown byte-comparable across reruns on one
+goes unnoticed. The one drop it does catch is the degenerate one, a zero-byte or
+absent artifact; any non-empty artifact, however much smaller, passes. The baseline was shown byte-comparable across reruns on one
 machine only, never across machines and JDKs, which is why the gate carries an
 explicit tolerance. The 1024-byte value is a judgment, not a measurement, and
 the first cross-machine run is the first real test of it. If the gate fails on a
@@ -195,8 +286,11 @@ build type is covered automatically.
 is the literal `true` (kept explicit so the rules stay exercisable on a device),
 and the data extraction rules and the legacy backup rules it references exclude
 every documented domain with `path="."` and contain no `<include>` element. A
-rule file that shadows another in a resource overlay is checked as well, and an
-unresolvable reference is itself a violation.
+rule file that shadows another is checked as well, whether it sits in a resource
+overlay or in a resource-qualified directory of the same resource root (an
+`xml-<qualifier>` directory next to `xml`, which Android prefers over the
+unqualified copy on the devices it matches). An unresolvable reference is itself a
+violation.
 
 **Command.** `./gradlew verifyDebugBackupRules verifyReleaseBackupRules`
 (reached by `check`). The on-device companion is `scripts/verify-backup.sh
