@@ -143,5 +143,17 @@ data class ExportInfo(
 object TaxGrouping {
 
     /** The `totalConImpuestos` entries for [lines], one per distinct tax-code and rate-code pair. */
-    fun totals(lines: List<InvoiceLine>): List<TaxTotal> = TODO("02-05 Task 3")
+    fun totals(lines: List<InvoiceLine>): List<TaxTotal> = lines
+        .flatMap { it.taxes }
+        .groupBy { it.taxCode to it.rateCode }
+        .map { (codes, taxes) ->
+            TaxTotal(
+                taxCode = codes.first,
+                rateCode = codes.second,
+                // Full precision all the way: Money applies the scale once, at emission.
+                taxableBase = taxes.fold(BigDecimal.ZERO) { sum, tax -> sum.add(tax.taxableBase) },
+                amount = taxes.fold(BigDecimal.ZERO) { sum, tax -> sum.add(tax.amount) },
+            )
+        }
+        .sortedWith(compareBy({ it.taxCode }, { it.rateCode }))
 }
