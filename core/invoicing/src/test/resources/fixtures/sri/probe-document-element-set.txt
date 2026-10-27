@@ -16,6 +16,9 @@
 #    afterwards to follow a widened writer. A later re-run of the probe gets its own dated finding.
 #
 # Lines starting with '#' and blank lines are ignored.
+# Re-derived 2026-10-27 from ProbeDocumentFixture.canonicalOctets() by plan 02-05, Task 2,
+# after FacturaWriter was widened to full 1.1.0 coverage. The path list below is what that
+# derivation produced; it is never hand-edited.
 factura
 factura/infoTributaria
 factura/infoTributaria/ambiente
