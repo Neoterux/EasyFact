@@ -35,5 +35,9 @@ gradlePlugin {
             id = "easyfact.jvm-boundary"
             implementationClass = "easyfact.JvmBoundaryPlugin"
         }
+        register("repoGates") {
+            id = "easyfact.repo-gates"
+            implementationClass = "easyfact.RepoGatesPlugin"
+        }
     }
 }

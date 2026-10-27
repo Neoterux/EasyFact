@@ -3,6 +3,8 @@ plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.animalsniffer) apply false
+    // Repository-wide gates (privacy scan). Applied here, once, because they scan the whole checkout.
+    id("easyfact.repo-gates")
 }
 
 // One `./gradlew check` must run every gate this phase adds, including the unit tests of the
