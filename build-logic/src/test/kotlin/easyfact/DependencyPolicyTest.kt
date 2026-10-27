@@ -215,6 +215,90 @@ class DependencyPolicyTest {
         assertEquals(expected, testingViolations(*ids))
     }
 
+    /**
+     * Every module `com.googlecode.xades4j:xades4j:2.4.1` actually puts on
+     * `:core:invoicing`'s `testRuntimeClasspath`, as resolved by
+     * `./gradlew :core:invoicing:dependencies --configuration testRuntimeClasspath` on
+     * 2026-10-27. Versions are left out because the policy reads `group:name` only.
+     *
+     * No gate inspects `testRuntimeClasspath` — `verifyDependencyPolicy` deliberately scans the
+     * runtime classpath alone — so this list is the written-down record of what the verification
+     * dependency drags in, and the fixture the assertions below run against.
+     */
+    private val measuredXades4jTestClasspath = arrayOf(
+        "com.googlecode.xades4j:xades4j",
+        "com.google.guava:guava",
+        "com.google.guava:failureaccess",
+        "com.google.guava:listenablefuture",
+        "com.google.code.findbugs:jsr305",
+        "org.checkerframework:checker-qual",
+        "com.google.errorprone:error_prone_annotations",
+        "com.google.j2objc:j2objc-annotations",
+        "com.google.inject:guice",
+        "jakarta.inject:jakarta.inject-api",
+        "aopalliance:aopalliance",
+        "org.apache.santuario:xmlsec",
+        "commons-codec:commons-codec",
+        "com.fasterxml.woodstox:woodstox-core",
+        "org.codehaus.woodstox:stax2-api",
+        "org.bouncycastle:bcpkix-jdk18on",
+        "org.bouncycastle:bcprov-jdk18on",
+        "org.bouncycastle:bcutil-jdk18on",
+        "jakarta.xml.bind:jakarta.xml.bind-api",
+        "jakarta.activation:jakarta.activation-api",
+        "org.glassfish.jaxb:jaxb-runtime",
+        "org.glassfish.jaxb:jaxb-core",
+        "org.glassfish.jaxb:txw2",
+        "org.eclipse.angus:angus-activation",
+        "com.sun.istack:istack-commons-runtime",
+    )
+
+    @Test
+    fun noMeasuredXades4jModuleIsAllowedOnThePlainJvmProfile() {
+        // `:core:invoicing` is the module that declares xades4j. Nothing it drags in may appear
+        // on that module's own runtime classpath, so every measured module must be a violation.
+        val result = jvmViolations(*measuredXades4jTestClasspath)
+        assertEquals(measuredXades4jTestClasspath.size, result.size)
+    }
+
+    @Test
+    fun theOnlyMeasuredXades4jModulesTheAppProfileAllowsAreTheTwoAlreadyReviewedShims() {
+        val violating = appViolations(*measuredXades4jTestClasspath)
+            // A violation line is `DENIED <id>` or `NOT ALLOWLISTED <id>`; the id is the last field.
+            .map { it.substringAfterLast(' ') }
+            .toSet()
+        val allowed = measuredXades4jTestClasspath.toSet() - violating
+        // Both are already on the shipping classpath through androidx and material; neither
+        // arrives because of xades4j, and neither carries code.
+        assertEquals(
+            setOf("com.google.errorprone:error_prone_annotations", "com.google.guava:listenablefuture"),
+            allowed,
+        )
+    }
+
+    @Test
+    fun theHeavyweightXades4jModulesAreDeniedByNameAndNotMerelyUnreviewed() {
+        val heavyweight = arrayOf(
+            "com.googlecode.xades4j:xades4j",
+            "org.apache.santuario:xmlsec",
+            "com.google.inject:guice",
+            "jakarta.xml.bind:jakarta.xml.bind-api",
+            "org.glassfish.jaxb:jaxb-runtime",
+            "org.glassfish.jaxb:jaxb-core",
+            "org.glassfish.jaxb:txw2",
+        )
+        val expected = heavyweight.map { "DENIED $it" }.sorted()
+        assertEquals(expected, appViolations(*heavyweight))
+        assertEquals(expected, jvmViolations(*heavyweight))
+        // The testing profile relaxes BouncyCastle and nothing else.
+        assertEquals(expected, testingViolations(*heavyweight))
+        assertEquals(
+            listOf("DENIED org.bouncycastle:bcprov-jdk18on"),
+            jvmViolations("org.bouncycastle:bcprov-jdk18on"),
+        )
+        assertEquals(emptyList<String>(), testingViolations("org.bouncycastle:bcprov-jdk18on"))
+    }
+
     @Test
     fun testingDeniedIsDerivedFromDeniedMinusBouncyCastle() {
         assertEquals(
