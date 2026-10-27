@@ -35,6 +35,14 @@ import java.util.Locale
  * decimals, quantities and unit prices six, always rounded half-up. `toPlainString` never writes
  * an exponent, and it does not depend on the default locale (the date pattern below is pinned to
  * [Locale.ROOT] for the same reason).
+ *
+ * The six decimals on `cantidad` and `precioUnitario` are deliberate and differ from the two the
+ * phase plan named. Two is the SRI's rule for monetary totals, which [MONEY_SCALE] applies; the
+ * factura schema allows a unit price six. Rounding a unit price to two before multiplying is what
+ * makes `cantidad * precioUnitario` disagree with `precioTotalSinImpuesto`, and that disagreement
+ * is itself a rejection, so the wider scale is the safer of the two. The schema gate planned for
+ * 02-09 checks this against the published XSD rather than against recollection; if it contradicts
+ * this comment, the gate wins.
  */
 object FacturaWriter {
 

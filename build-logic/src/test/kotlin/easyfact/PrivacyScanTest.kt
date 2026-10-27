@@ -19,6 +19,7 @@ package easyfact
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -298,5 +299,28 @@ class PrivacyScanTest {
         val scanned = PrivacyScan.ScannedFile(self.path, self.readText().lines())
 
         assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(scanned)))
+    }
+
+    @Test
+    fun anAllowlistEntryThatCouldBeARealIdentifierIsRefused() {
+        // A placeholder whose base is not one repeated digit could be somebody's real number, so
+        // the allowlist refuses it at construction rather than quietly accepting it everywhere.
+        // Built from fragments: a literal run here would (rightly) trip the gate this file tests.
+        val plausible = digits(5, '1') + digits(5, '2') + "001"
+        val refused = assertThrows(IllegalArgumentException::class.java) {
+            PrivacyScan.Allowlist(syntheticRuc = plausible, allowedEmailDomain = "example.com")
+        }
+        assertTrue(refused.message!!, refused.message!!.contains("one repeated digit"))
+
+        assertThrows(IllegalArgumentException::class.java) {
+            PrivacyScan.Allowlist(syntheticRuc = digits(12, '9'), allowedEmailDomain = "example.com")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            PrivacyScan.Allowlist(syntheticRuc = "9".repeat(10) + "00x", allowedEmailDomain = "example.com")
+        }
+
+        // The shapes the repository actually uses stay legal.
+        PrivacyScan.Allowlist(syntheticRuc = digits(13, '8'), allowedEmailDomain = "mail.test")
+        assertEquals("9".repeat(10) + "001", PrivacyScan.Allowlist.DEFAULT.syntheticRuc)
     }
 }

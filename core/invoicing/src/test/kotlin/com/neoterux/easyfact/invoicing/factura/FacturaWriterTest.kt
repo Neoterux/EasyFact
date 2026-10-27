@@ -114,6 +114,28 @@ class FacturaWriterTest {
         assertTrue(xml.contains("<precioUnitario>100.000000</precioUnitario>"))
     }
 
+    /**
+     * Pinned deliberately against the phase plan, which named two decimals for the unit price.
+     * Rounding a unit price to two before it is multiplied is what makes `cantidad` times
+     * `precioUnitario` disagree with `precioTotalSinImpuesto`, and the SRI rejects that
+     * disagreement, so the wider scale is the safer of the two. Changing it is a decision about
+     * SRI arithmetic rather than a formatting tweak, and it has to break this test first.
+     */
+    @Test
+    fun aUnitPriceKeepsSixDecimalsAndRoundsHalfUpAtTheSeventh() {
+        val base = SampleFactura.factura()
+        val line = base.lines.first().copy(
+            quantity = BigDecimal("2.5"),
+            unitPrice = BigDecimal("12.3456785"), // half-up at the seventh decimal
+            totalWithoutTaxes = BigDecimal("30.86"),
+        )
+        val xml = rootXml(base.copy(lines = listOf(line)))
+        assertTrue(xml, xml.contains("<cantidad>2.500000</cantidad>"))
+        assertTrue(xml, xml.contains("<precioUnitario>12.345679</precioUnitario>"))
+        // The line total stays money-scaled at two, which is the SRI's rule for an amount.
+        assertTrue(xml, xml.contains("<precioTotalSinImpuesto>30.86</precioTotalSinImpuesto>"))
+    }
+
     @Test
     fun issueDateIsDayMonthYear() {
         assertTrue(rootXml().contains("<fechaEmision>27/10/2026</fechaEmision>"))

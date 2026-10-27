@@ -50,6 +50,25 @@ object PrivacyScan {
      * digit is a violation. [allowedEmailDomain] covers the domain itself and its subdomains.
      */
     data class Allowlist(val syntheticRuc: String, val allowedEmailDomain: String) {
+        init {
+            // The allowlist is the one place where a real identifier could be waved through on
+            // purpose -- widen it and the whole gate becomes decorative. So the placeholder is
+            // required to be structurally incapable of being a real identifier rather than merely
+            // looking unlikely: its ten-digit base must be one repeated digit, which no issued
+            // cedula or RUC base is. Making a real number pass then means deleting this check,
+            // which is a visible change to the gate, not an edit to a configuration value.
+            require(syntheticRuc.length == RUC_LENGTH) {
+                "the allowlisted placeholder must be $RUC_LENGTH digits long"
+            }
+            require(syntheticRuc.all { it in '0'..'9' }) {
+                "the allowlisted placeholder must be digits only"
+            }
+            require(syntheticRuc.take(CEDULA_LENGTH).toSet().size == 1) {
+                "the allowlisted placeholder's first $CEDULA_LENGTH digits must be one repeated " +
+                    "digit, so that it cannot be a real identifier"
+            }
+        }
+
         companion object {
             /** Built from fragments so this file carries no identifier-shaped literal. */
             val DEFAULT: Allowlist = Allowlist("9".repeat(10) + "001", "example.com")
@@ -165,4 +184,5 @@ object PrivacyScan {
     }
 
     private const val CEDULA_LENGTH = 10
+    private const val RUC_LENGTH = 13
 }
