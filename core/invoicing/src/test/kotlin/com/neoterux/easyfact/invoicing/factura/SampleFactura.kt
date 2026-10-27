@@ -88,5 +88,100 @@ object SampleFactura {
         additionalFields = listOf(AdditionalField("Email", SyntheticIdentifiers.BILLING_EMAIL)),
     )
 
-    fun document(): CanonicalDocument = FacturaWriter.write(factura())
+    /** The fixture must always be valid, so a failure here is a bug in the fixture and throws. */
+    /**
+     * A factura that populates every optional block the model covers, so that a test can assert
+     * the full `xsd:sequence` rather than only the mandatory skeleton.
+     *
+     * Values stay synthetic and structurally plausible; nothing here is arithmetically meaningful
+     * beyond what the ordering and presence assertions need.
+     */
+    fun fullyPopulated(): Factura {
+        val base = factura()
+        return base.copy(
+            taxInfo = base.taxInfo.copy(
+                withholdingAgentResolution = "001",
+                rimpeRegimeLegend = "CONTRIBUYENTE REGIMEN RIMPE",
+            ),
+            invoiceInfo = base.invoiceInfo.copy(
+                specialTaxpayerNumber = "12345",
+                exportInfo = ExportInfo(
+                    code = "EXPORTADOR",
+                    incoTerm = "A",
+                    incoTermPlace = "Test Port",
+                    countryOfOrigin = "593",
+                    portOfLoading = "Test Loading",
+                    portOfDestination = "Test Destination",
+                    countryOfDestination = "840",
+                    countryOfAcquisition = "840",
+                ),
+                dispatchNote = "001-003-000000001",
+                buyerAddress = "Calle Falsa 789",
+                totalSubsidy = BigDecimal("0"),
+                incoTermTotalWithoutTaxes = "A",
+                refundTotals = RefundTotals(
+                    documentTypeCode = "01",
+                    documentCount = BigDecimal("1"),
+                    taxableBase = BigDecimal("1"),
+                    taxAmount = BigDecimal("0"),
+                ),
+                taxTotals = listOf(
+                    TaxTotal(
+                        taxCode = "2",
+                        rateCode = "0",
+                        taxableBase = BigDecimal("100"),
+                        amount = BigDecimal("0"),
+                        additionalDiscount = BigDecimal("0"),
+                        ivaRefundValue = BigDecimal("0"),
+                    ),
+                ),
+                compensations = listOf(Compensation("1", BigDecimal("0"), BigDecimal("0"))),
+                internationalFreight = BigDecimal("0"),
+                internationalInsurance = BigDecimal("0"),
+                customsCharges = BigDecimal("0"),
+                otherTransportCharges = BigDecimal("0"),
+                licensePlate = "TEST0001",
+                payments = listOf(
+                    Payment("01", BigDecimal("100"), term = BigDecimal("30"), termUnit = "dias"),
+                ),
+                ivaWithheldValue = BigDecimal("0"),
+                incomeTaxWithheldValue = BigDecimal("0"),
+            ),
+            lines = listOf(
+                base.lines.first().copy(
+                    auxiliaryCode = "AUX1",
+                    priceWithoutSubsidy = BigDecimal("100"),
+                    additionalDetails = listOf(LineDetailField("Periodo", "2026-10")),
+                ),
+            ),
+            refunds = listOf(
+                Refund(
+                    providerIdentificationTypeCode = "04",
+                    providerIdentification = SyntheticIdentifiers.RUC,
+                    providerPaymentCountryCode = "593",
+                    providerTypeCode = "01",
+                    documentTypeCode = "01",
+                    establishmentCode = "001",
+                    emissionPointCode = "003",
+                    sequential = "000000001",
+                    issueDate = LocalDate.of(2026, 10, 27),
+                    authorizationNumber = accessKey,
+                    taxes = listOf(
+                        RefundTax("2", "0", BigDecimal("0"), BigDecimal("1"), BigDecimal("0")),
+                    ),
+                ),
+            ),
+            withholdings = listOf(Withholding("1", "327", BigDecimal("0"), BigDecimal("0"))),
+            thirdPartyCharges = listOf(ThirdPartyCharge("Test concept", BigDecimal("0"))),
+            negotiableEmail = SyntheticIdentifiers.BILLING_EMAIL,
+        )
+    }
+
+    fun document(): CanonicalDocument = write(factura())
+
+    /** Unwraps the writer's outcome; the message never carries a document value. */
+    fun write(factura: Factura): CanonicalDocument = when (val outcome = FacturaWriter.write(factura)) {
+        is Outcome.Ok -> outcome.value
+        is Outcome.Err -> throw IllegalArgumentException("the sample factura is not writable: ${outcome.error}")
+    }
 }

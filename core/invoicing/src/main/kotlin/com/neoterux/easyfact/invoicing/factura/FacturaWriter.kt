@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
+import com.neoterux.easyfact.invoicing.result.Outcome
 import com.neoterux.easyfact.invoicing.xml.CanonicalDocument
 import com.neoterux.easyfact.invoicing.xml.CanonicalEmitter
 import java.math.BigDecimal
@@ -48,7 +49,7 @@ object FacturaWriter {
     private val ISSUE_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
 
     /** Writes [factura] with the XML declaration. The declaration is kept out of the signed root. */
-    fun write(factura: Factura): CanonicalDocument {
+    fun write(factura: Factura): Outcome<CanonicalDocument, FacturaError> {
         val xml = CanonicalEmitter()
         xml.open("factura", mapOf("id" to "comprobante", "version" to "1.1.0"))
         writeTaxInfo(xml, factura.taxInfo)
@@ -56,7 +57,7 @@ object FacturaWriter {
         writeLines(xml, factura.lines)
         writeAdditionalInfo(xml, factura.additionalFields)
         xml.close()
-        return xml.document(prolog = true)
+        return Outcome.Ok(xml.document(prolog = true))
     }
 
     private fun writeTaxInfo(xml: CanonicalEmitter, info: TaxInfo) {
@@ -113,7 +114,7 @@ object FacturaWriter {
         xml.open("detalles")
         for (line in lines) {
             xml.open("detalle")
-            element(xml, "codigoPrincipal", line.mainCode)
+            line.mainCode?.let { element(xml, "codigoPrincipal", it) }
             element(xml, "descripcion", line.description)
             element(xml, "cantidad", Money.quantity(line.quantity))
             element(xml, "precioUnitario", Money.unitPrice(line.unitPrice))

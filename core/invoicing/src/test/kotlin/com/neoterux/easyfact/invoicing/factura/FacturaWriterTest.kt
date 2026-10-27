@@ -17,7 +17,15 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
+import com.neoterux.easyfact.invoicing.result.Outcome
+import com.neoterux.easyfact.invoicing.signing.FixedIdSource
+import com.neoterux.easyfact.invoicing.signing.Rfc2253Jdk
+import com.neoterux.easyfact.invoicing.signing.TestIdentities
+import com.neoterux.easyfact.invoicing.signing.XadesBesSigner
+import com.neoterux.easyfact.invoicing.verify.C14nIdentityOracle
+import com.neoterux.easyfact.invoicing.verify.Jsr105Verifier
 import java.math.BigDecimal
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -26,7 +34,7 @@ import org.junit.Test
 class FacturaWriterTest {
 
     private fun rootXml(factura: Factura = SampleFactura.factura()): String =
-        String(FacturaWriter.write(factura).root, Charsets.UTF_8)
+        String(SampleFactura.write(factura).root, Charsets.UTF_8)
 
     @Test
     fun prologIsTheDeclarationFollowedByOneLineFeed() {
@@ -155,5 +163,265 @@ class FacturaWriterTest {
         val xml = rootXml()
         assertTrue(xml.indexOf("<moneda>") < xml.indexOf("<pagos>"))
         assertTrue(xml.contains("<pagos><pago><formaPago>01</formaPago><total>100.00</total></pago></pagos>"))
+    }
+
+    // ---- the full 1.1.0 shape (plan 02-05, task 2) ------------------------------------------
+
+    private fun fullXml(): String = String(SampleFactura.write(SampleFactura.fullyPopulated()).root, Charsets.UTF_8)
+
+    /** The element names of [xml] in document order, including repeats. */
+    private fun elementNames(xml: String): List<String> =
+        Regex("<([A-Za-z][A-Za-z0-9.-]*)[ >]").findAll(xml).map { it.groupValues[1] }.toList()
+
+    private fun error(factura: Factura): FacturaError =
+        (FacturaWriter.write(factura) as Outcome.Err).error
+
+    private fun assertNoElement(xml: String, name: String) {
+        assertFalse("<$name> must be absent entirely", xml.contains("<$name>") || xml.contains("<$name "))
+    }
+
+    @Test
+    fun aMandatoryOnlyDocumentEmitsNoConditionalElementAtAll() {
+        val minimal = SampleFactura.factura().let {
+            it.copy(
+                taxInfo = it.taxInfo.copy(tradeName = null),
+                additionalFields = emptyList(),
+            )
+        }
+        val xml = String(SampleFactura.write(minimal).root, Charsets.UTF_8)
+        val conditional = listOf(
+            "nombreComercial", "agenteRetencion", "contribuyenteRimpe", "contribuyenteEspecial",
+            "comercioExterior", "incoTermFactura", "lugarIncoTerm", "paisOrigen", "puertoEmbarque",
+            "puertoDestino", "paisDestino", "paisAdquisicion", "guiaRemision", "direccionComprador",
+            "totalSubsidio", "incoTermTotalSinImpuestos", "codDocReembolso",
+            "totalComprobantesReembolso", "totalBaseImponibleReembolso", "totalImpuestoReembolso",
+            "compensaciones", "fleteInternacional", "seguroInternacional", "gastosAduaneros",
+            "gastosTransporteOtros", "placa", "valorRetIva", "valorRetRenta", "codigoAuxiliar",
+            "precioSinSubsidio", "detallesAdicionales", "descuentoAdicional", "valorDevolucionIva",
+            "plazo", "unidadTiempo", "reembolsos", "retenciones", "otrosRubrosTerceros",
+            "tipoNegociable", "infoAdicional",
+        )
+        conditional.forEach { assertNoElement(xml, it) }
+        // An empty element is never written to stand in for an absent one.
+        assertFalse(xml, Regex("<([A-Za-z][A-Za-z0-9.-]*)></\\1>").containsMatchIn(xml))
+    }
+
+    @Test
+    fun totalDescuentoAndPropinaAreEmittedEvenWhenZero() {
+        val base = SampleFactura.factura()
+        val xml = String(
+            SampleFactura.write(
+                base.copy(invoiceInfo = base.invoiceInfo.copy(totalDiscount = BigDecimal.ZERO, tip = BigDecimal.ZERO)),
+            ).root,
+            Charsets.UTF_8,
+        )
+        assertTrue(xml, xml.contains("<totalDescuento>0.00</totalDescuento>"))
+        assertTrue(xml, xml.contains("<propina>0.00</propina>"))
+    }
+
+    @Test
+    fun aPaymentEmitsItsChildrenInSchemaOrder() {
+        val base = SampleFactura.factura()
+        val payment = Payment("01", BigDecimal("100"), term = BigDecimal("30"), termUnit = "dias")
+        val xml = String(
+            SampleFactura.write(base.copy(invoiceInfo = base.invoiceInfo.copy(payments = listOf(payment)))).root,
+            Charsets.UTF_8,
+        )
+        assertTrue(
+            xml,
+            xml.contains(
+                "<pagos><pago><formaPago>01</formaPago><total>100.00</total>" +
+                    "<plazo>30.00</plazo><unidadTiempo>dias</unidadTiempo></pago></pagos>",
+            ),
+        )
+    }
+
+    @Test
+    fun totalConImpuestosEmitsOneTotalImpuestoPerGroupWithItsFourMandatoryChildren() {
+        val base = SampleFactura.factura()
+        val totals = listOf(
+            TaxTotal("2", "0", BigDecimal("100"), BigDecimal("0")),
+            TaxTotal("2", "4", BigDecimal("50"), BigDecimal("7.5")),
+        )
+        val xml = String(
+            SampleFactura.write(base.copy(invoiceInfo = base.invoiceInfo.copy(taxTotals = totals))).root,
+            Charsets.UTF_8,
+        )
+        assertEquals(2, Regex("<totalImpuesto>").findAll(xml).count())
+        assertTrue(
+            xml,
+            xml.contains(
+                "<totalImpuesto><codigo>2</codigo><codigoPorcentaje>0</codigoPorcentaje>" +
+                    "<baseImponible>100.00</baseImponible><valor>0.00</valor></totalImpuesto>",
+            ),
+        )
+        assertTrue(
+            xml,
+            xml.contains(
+                "<totalImpuesto><codigo>2</codigo><codigoPorcentaje>4</codigoPorcentaje>" +
+                    "<baseImponible>50.00</baseImponible><valor>7.50</valor></totalImpuesto>",
+            ),
+        )
+    }
+
+    @Test
+    fun theOptionalChildrenOfATotalImpuestoAreEmittedInSchemaOrderWhenPresent() {
+        val base = SampleFactura.factura()
+        val total = TaxTotal(
+            taxCode = "2",
+            rateCode = "0",
+            taxableBase = BigDecimal("100"),
+            amount = BigDecimal("0"),
+            additionalDiscount = BigDecimal("1"),
+            ivaRefundValue = BigDecimal("2"),
+        )
+        val xml = String(
+            SampleFactura.write(base.copy(invoiceInfo = base.invoiceInfo.copy(taxTotals = listOf(total)))).root,
+            Charsets.UTF_8,
+        )
+        assertTrue(
+            xml,
+            xml.contains(
+                "<totalImpuesto><codigo>2</codigo><codigoPorcentaje>0</codigoPorcentaje>" +
+                    "<descuentoAdicional>1.00</descuentoAdicional><baseImponible>100.00</baseImponible>" +
+                    "<valor>0.00</valor><valorDevolucionIva>2.00</valorDevolucionIva></totalImpuesto>",
+            ),
+        )
+    }
+
+    @Test
+    fun aLineEmitsDetallesAdicionalesWhenPresentAndOmitsTheElementWhenAbsent() {
+        val base = SampleFactura.factura()
+        assertNoElement(rootXml(base), "detallesAdicionales")
+        val line = base.lines.first().copy(additionalDetails = listOf(LineDetailField("Periodo", "2026-10")))
+        val xml = String(SampleFactura.write(base.copy(lines = listOf(line))).root, Charsets.UTF_8)
+        assertTrue(
+            xml,
+            xml.contains(
+                "<detallesAdicionales><detAdicional nombre=\"Periodo\" valor=\"2026-10\">" +
+                    "</detAdicional></detallesAdicionales>",
+            ),
+        )
+    }
+
+    @Test
+    fun infoAdicionalEmitsOneCampoAdicionalPerEntryEachCarryingItsNombreAttribute() {
+        val base = SampleFactura.factura()
+        val fields = listOf(AdditionalField("Email", "a@example.com"), AdditionalField("Periodo", "2026-10"))
+        val xml = String(SampleFactura.write(base.copy(additionalFields = fields)).root, Charsets.UTF_8)
+        assertEquals(2, Regex("<campoAdicional ").findAll(xml).count())
+        assertTrue(xml, xml.contains("<campoAdicional nombre=\"Email\">a@example.com</campoAdicional>"))
+        assertTrue(xml, xml.contains("<campoAdicional nombre=\"Periodo\">2026-10</campoAdicional>"))
+    }
+
+    @Test
+    fun theOptionalBlocksAreAbsentOnTheSampleAndPresentOnTheFullyPopulatedDocument() {
+        val blocks = listOf(
+            "reembolsos", "retenciones", "comercioExterior", "compensaciones",
+            "valorRetIva", "valorRetRenta", "otrosRubrosTerceros", "tipoNegociable",
+        )
+        val minimal = rootXml()
+        blocks.forEach { assertNoElement(minimal, it) }
+        val full = fullXml()
+        blocks.forEach { assertTrue("<$it> must be present\n$full", full.contains("<$it>")) }
+    }
+
+    @Test
+    fun aReembolsoDetalleEmitsItsChildrenInSchemaOrder() {
+        val names = elementNames(fullXml())
+        val start = names.indexOf("reembolsoDetalle")
+        assertTrue(start >= 0)
+        val expected = listOf(
+            "reembolsoDetalle", "tipoIdentificacionProveedorReembolso", "identificacionProveedorReembolso",
+            "codPaisPagoProveedorReembolso", "tipoProveedorReembolso", "codDocReembolso",
+            "estabDocReembolso", "ptoEmiDocReembolso", "secuencialDocReembolso",
+            "fechaEmisionDocReembolso", "numeroautorizacionDocReemb", "detalleImpuestos",
+            "detalleImpuesto", "codigo", "codigoPorcentaje", "tarifa", "baseImponibleReembolso",
+            "impuestoReembolso",
+        )
+        assertEquals(expected, names.subList(start, start + expected.size))
+    }
+
+    // ---- typed failures ----------------------------------------------------------------------
+
+    @Test
+    fun aFieldLongerThanItsSchemaFacetIsATypedFailure() {
+        val base = SampleFactura.factura()
+        val tooLong = "A".repeat(301)
+        val outcome = error(base.copy(taxInfo = base.taxInfo.copy(legalName = tooLong)))
+        assertEquals(FacturaError.FieldTooLong("razonSocial", 300, 301), outcome)
+    }
+
+    @Test
+    fun aCharacterIllegalInXmlIsATypedFailure() {
+        val base = SampleFactura.factura()
+        val outcome = error(base.copy(taxInfo = base.taxInfo.copy(legalName = "Test \u0000 S.A.")))
+        assertEquals(FacturaError.IllegalCharacter("razonSocial"), outcome)
+    }
+
+    @Test
+    fun aRequiredFieldThatIsBlankIsATypedFailure() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.BlankField("razonSocialComprador"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(buyerLegalName = "   "))),
+        )
+    }
+
+    @Test
+    fun aCodeOutsideItsCatalogueIsATypedFailure() {
+        val base = SampleFactura.factura()
+        val outcome = error(base.copy(taxInfo = base.taxInfo.copy(environmentCode = "3")))
+        assertTrue(outcome.toString(), outcome is FacturaError.CodeOutsideCatalogue)
+        assertEquals("ambiente", outcome.element)
+    }
+
+    @Test
+    fun moreThanFifteenAdditionalFieldsIsATypedFailure() {
+        val base = SampleFactura.factura()
+        val sixteen = (1..16).map { AdditionalField("Campo$it", "value") }
+        assertEquals(
+            FacturaError.TooManyEntries("infoAdicional", 15, 16),
+            error(base.copy(additionalFields = sixteen)),
+        )
+    }
+
+    @Test
+    fun aFailureNeverCarriesTheOffendingValue() {
+        val base = SampleFactura.factura()
+        val secret = "Z".repeat(301)
+        val rendered = error(base.copy(taxInfo = base.taxInfo.copy(legalName = secret))).toString()
+        assertFalse(rendered, rendered.contains(secret))
+        assertFalse(rendered, rendered.contains("ZZZ"))
+    }
+
+    // ---- the full document still signs and verifies -------------------------------------------
+
+    @Test
+    fun theFullyPopulatedDocumentIsAC14nIdentity() {
+        val root = SampleFactura.write(SampleFactura.fullyPopulated()).root
+        assertArrayEquals(root, C14nIdentityOracle.canonicalize(root))
+    }
+
+    @Test
+    fun theFullyPopulatedDocumentStillSignsAndValidatesInTheJsr105Oracle() {
+        val document = SampleFactura.write(SampleFactura.fullyPopulated())
+        val signer = XadesBesSigner(FixedIdSource(100000), Rfc2253Jdk, TestIdentities.fixedClock)
+        val signed = (signer.sign(document, TestIdentities.plain) as Outcome.Ok).value.octets()
+        assertEquals(Jsr105Verifier.Verdict.VALID, Jsr105Verifier.verdict(signed))
+        val signedRoot = signed.copyOfRange(document.prolog.size, signed.size)
+        assertArrayEquals(signedRoot, C14nIdentityOracle.canonicalize(signedRoot))
+    }
+
+    // ---- the writer builds no markup of its own ------------------------------------------------
+
+    @Test
+    fun theWriterNeverConcatenatesMarkupItself() {
+        val source = java.nio.file.Files.readString(
+            java.nio.file.Path.of("src/main/kotlin/com/neoterux/easyfact/invoicing/factura/FacturaWriter.kt"),
+        )
+        val code = source.lines().filterNot { it.trimStart().startsWith("*") || it.trimStart().startsWith("/*") }
+        assertFalse("the writer must emit through CanonicalEmitter only", code.any { it.contains("\"<") })
+        assertFalse(code.any { it.contains("\"</") })
     }
 }

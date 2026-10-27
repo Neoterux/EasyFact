@@ -268,7 +268,8 @@ class ProbeEnvironmentGuardTest {
 
     @Test
     fun theFixtureEmitsThroughTheWriterAndIsNotBuiltByHand() {
-        assertArrayEquals(FacturaWriter.write(ProbeDocumentFixture.factura()).octets(), ProbeDocumentFixture.canonicalOctets())
+        val written = (FacturaWriter.write(ProbeDocumentFixture.factura()) as Outcome.Ok).value
+        assertArrayEquals(written.octets(), ProbeDocumentFixture.canonicalOctets())
         val source = Files.readString(probeSourceDirectory.resolve("ProbeDocumentFixture.kt"))
         assertTrue(source.contains("FacturaWriter.write"))
         assertFalse("the fixture must not assemble XML by string", source.contains("\"<"))

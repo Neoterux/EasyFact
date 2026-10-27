@@ -132,7 +132,12 @@ object ProbeDocumentFixture {
         )
     }
 
-    fun document(values: Values = Values()): CanonicalDocument = FacturaWriter.write(factura(values))
+    /** A failure here is a bug in the fixture values, so it throws rather than returning an outcome. */
+    fun document(values: Values = Values()): CanonicalDocument =
+        when (val outcome = FacturaWriter.write(factura(values))) {
+            is Outcome.Ok -> outcome.value
+            is Outcome.Err -> throw IllegalArgumentException("probe fixture values do not make a document: ${outcome.error}")
+        }
 
     /** The octets of [document] as the writer emitted them: the declaration and the unsigned root. */
     fun canonicalOctets(values: Values = Values()): ByteArray = document(values).octets()
