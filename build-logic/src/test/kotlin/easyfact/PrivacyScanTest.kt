@@ -179,4 +179,124 @@ class PrivacyScanTest {
         assertTrue("untracked files", "untracked" in gap)
         assertTrue("git history", "history" in gap)
     }
+
+    // ---- Task 3: exact-list evidence, near-misses and the self-scan ------------------------------
+
+    /** One failing fixture per rule: the line that triggers it, assembled at run time. */
+    private fun failingFixtures(): Map<String, String> = mapOf(
+        "ruc13" to "x=" + digits(13, '3'),
+        "cedula10" to "x=" + digits(10, '3'),
+        "accessKey49" to "x=" + accessKey(digits(13, '3')),
+        "pemMarker" to "-".repeat(5) + "BEGIN " + "CERTIFICATE" + "-".repeat(5),
+        "pkcs12Marker" to "SECRET=" + "MII" + "K".repeat(300) + "==",
+        "email" to "x " + "someone" + "@" + "other.invalid",
+    )
+
+    @Test
+    fun everyRuleFiresExactlyOnceWithAOneBasedLineNumber() {
+        for ((rule, line) in failingFixtures()) {
+            val result = PrivacyScan.violations(listOf(file("clean", "also clean", line, path = "f.kt")))
+
+            assertEquals("rule $rule", listOf("PRIVACY $rule f.kt:3"), result)
+        }
+    }
+
+    @Test
+    fun noRuleMessageEverContainsTheMatchedValue() {
+        val published = failingFixtures().values.flatMap { line ->
+            PrivacyScan.violations(listOf(file(line, path = "f.kt")))
+        }.joinToString("\n")
+
+        for (fragment in listOf(digits(10, '3'), "other.invalid", "MII", "CERTIFICATE", "someone")) {
+            assertFalse("message published '$fragment'", fragment in published)
+        }
+    }
+
+    @Test
+    fun runsOfTheWrongLengthAreNotIdentifiers() {
+        val lines = listOf(9, 11, 12, 14, 20, 48, 50).map { "n=" + digits(it) }
+
+        assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(file(*lines.toTypedArray()))))
+    }
+
+    @Test
+    fun digitsGluedToLettersAreNotIdentifiers() {
+        val lines = arrayOf(
+            "id" + digits(13),
+            digits(13) + "ms",
+            "v" + digits(10) + "b",
+            "0x" + digits(13),
+        )
+
+        assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(file(*lines))))
+    }
+
+    @Test
+    fun placeholderRucAndItsBaseAreAllowedAsBareRuns() {
+        val lines = arrayOf("ruc: $placeholderRuc", "base: $rucBase")
+
+        assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(file(*lines))))
+    }
+
+    @Test
+    fun aRunOneDigitOffThePlaceholderIsStillReported() {
+        val offByOne = rucBase + "002"
+
+        assertEquals(
+            listOf("PRIVACY ruc13 src/Example.kt:1"),
+            PrivacyScan.violations(listOf(file("ruc: $offByOne"))),
+        )
+    }
+
+    @Test
+    fun accessKeyAllowlistIsPositionalNotASubstringTest() {
+        // The placeholder RUC is present in the key, but not in the RUC window.
+        val key = digits(10, '4') + digits(13, '5') + placeholderRuc + digits(13, '6')
+        assertEquals(49, key.length)
+        assertTrue(placeholderRuc in key)
+
+        assertEquals(
+            listOf("PRIVACY accessKey49 src/Example.kt:1"),
+            PrivacyScan.violations(listOf(file("key=$key"))),
+        )
+    }
+
+    @Test
+    fun lookAlikeEmailDomainsAreReported() {
+        val suffixOnly = "a" + "@" + "notexample.com"
+        val prefixOnly = "b" + "@" + "example.com.other.invalid"
+
+        assertEquals(
+            listOf("PRIVACY email src/Example.kt:1", "PRIVACY email src/Example.kt:2"),
+            PrivacyScan.violations(listOf(file(suffixOnly, prefixOnly))),
+        )
+    }
+
+    @Test
+    fun anAllowedAndADisallowedAddressOnOneLineStillReports() {
+        val line = "a" + "@" + "example.com" + ", " + "b" + "@" + "other.invalid"
+
+        assertEquals(listOf("PRIVACY email src/Example.kt:1"), PrivacyScan.violations(listOf(file(line))))
+    }
+
+    @Test
+    fun customAllowlistIsHonoured() {
+        val allowlist = PrivacyScan.Allowlist(syntheticRuc = digits(13, '8'), allowedEmailDomain = "mail.test")
+        val lines = arrayOf(digits(13, '8'), "u" + "@" + "mail.test", "u" + "@" + "example.com")
+
+        assertEquals(
+            listOf("PRIVACY email src/Example.kt:3"),
+            PrivacyScan.violations(listOf(file(*lines)), allowlist),
+        )
+    }
+
+    @Test
+    fun thisTestSourceIsCleanUnderItsOwnGate() {
+        val self = java.io.File("src/test/kotlin/easyfact/PrivacyScanTest.kt")
+        assertTrue("expected to run from the build-logic project directory", self.isFile)
+
+        val scanned = PrivacyScan.ScannedFile(self.path, self.readText().lines())
+
+        assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(scanned)))
+    }
 }
