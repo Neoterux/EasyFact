@@ -78,19 +78,27 @@ class ProbeConfig private constructor(
 
         /**
          * The configuration, or `null` when the probe is not configured on this machine: the
-         * variable is unset, the file does not exist, or a required key is missing. A missing key
-         * prints the key's name (never a value) to the standard error stream, so a skip is not
-         * mistaken for a pass.
+         * variable is unset, the file does not exist, or a required key is missing.
+         *
+         * **Every** path that returns `null` reports why through [onSkip], which by default writes
+         * to the standard error stream. A silent skip is indistinguishable from a pass, and the two
+         * cheapest mistakes to make here — never exporting the variable, and exporting it into a
+         * shell whose Gradle daemon was started earlier and therefore cannot see it — both land on
+         * the first branch. Leaving that one quiet cost three runs that looked like successes.
          *
          * @throws IllegalStateException if the configuration file resolves inside [repositoryRoot]
          */
         fun fromEnvironment(
             environment: Map<String, String> = System.getenv(),
             repositoryRoot: Path? = findRepositoryRoot(),
+            onSkip: (String) -> Unit = DEFAULT_SKIP_REPORTER,
         ): ProbeConfig? {
-            val configured = environment[ENVIRONMENT_VARIABLE]?.takeIf { it.isNotBlank() } ?: return null
+            val configured = environment[ENVIRONMENT_VARIABLE]?.takeIf { it.isNotBlank() }
+                ?: return skip(onSkip, "the environment variable `$ENVIRONMENT_VARIABLE` is unset or blank")
             val file = Path.of(configured)
-            if (!Files.isRegularFile(file)) return null
+            if (!Files.isRegularFile(file)) {
+                return skip(onSkip, "`$ENVIRONMENT_VARIABLE` names `$configured`, which is not a regular file")
+            }
 
             val realFile = file.toRealPath()
             if (repositoryRoot != null) {
@@ -105,23 +113,23 @@ class ProbeConfig private constructor(
             try {
                 Files.newBufferedReader(realFile).use { properties.load(it) }
             } catch (e: IOException) {
-                return skip("the configuration file could not be read")
+                return skip(onSkip, "the configuration file could not be read")
             }
 
             fun value(key: String): String? = properties.getProperty(key)?.trim()?.takeIf { it.isNotEmpty() }
 
             for (key in REQUIRED_KEYS) {
-                if (value(key) == null) return skip("required key `$key` is missing")
+                if (value(key) == null) return skip(onSkip, "required key `$key` is missing")
             }
             val sequential = value("sequential")!!.toLongOrNull()
-            if (sequential == null || sequential < 1) return skip("key `sequential` is not a positive integer")
+            if (sequential == null || sequential < 1) return skip(onSkip, "key `sequential` is not a positive integer")
 
             val formatName = value("issuerNameFormat") ?: DEFAULT_ISSUER_NAME_FORMAT
             val format = IssuerNameFormats.ALL.firstOrNull { it.first == formatName }?.second
-                ?: return skip("key `issuerNameFormat` does not name a known format")
+                ?: return skip(onSkip, "key `issuerNameFormat` does not name a known format")
 
             val pollMinutes = value("pollWindowMinutes")?.toLongOrNull() ?: DEFAULT_POLL_WINDOW_MINUTES
-            if (pollMinutes < 1) return skip("key `pollWindowMinutes` is not a positive integer")
+            if (pollMinutes < 1) return skip(onSkip, "key `pollWindowMinutes` is not a positive integer")
 
             return ProbeConfig(
                 pkcs12Path = Path.of(value("pkcs12Path")!!),
@@ -142,8 +150,13 @@ class ProbeConfig private constructor(
             )
         }
 
-        private fun skip(reason: String): ProbeConfig? {
+        /** Reports a skip and its reason, so the run says what it wants rather than passing quietly. */
+        private val DEFAULT_SKIP_REPORTER: (String) -> Unit = { reason ->
             System.err.println("ProbeConfig: probe skipped, $reason.")
+        }
+
+        private fun skip(onSkip: (String) -> Unit, reason: String): ProbeConfig? {
+            onSkip(reason)
             return null
         }
 

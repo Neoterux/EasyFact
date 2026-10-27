@@ -151,12 +151,31 @@ class ProbeEnvironmentGuardTest {
         return file
     }
 
+    /** Collects the skip reasons [ProbeConfig.fromEnvironment] reports, in place of the stderr default. */
+    private class SkipReasons : (String) -> Unit {
+        val reasons = mutableListOf<String>()
+        override fun invoke(reason: String) { reasons += reason }
+        fun only(): String = reasons.single()
+    }
+
     @Test
     fun theConfigurationIsNullWhenTheVariableIsUnsetBlankOrNamesAMissingFile() {
         val repo = folder.newFolder("repo").toPath()
-        assertNull(ProbeConfig.fromEnvironment(emptyMap(), repo))
-        assertNull(ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to "  "), repo))
-        assertNull(ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to folder.root.resolve("absent.properties").path), repo))
+
+        val unset = SkipReasons()
+        assertNull(ProbeConfig.fromEnvironment(emptyMap(), repo, unset))
+        assertTrue(unset.only(), unset.only().contains(ProbeConfig.ENVIRONMENT_VARIABLE))
+        assertTrue(unset.only(), unset.only().contains("unset or blank"))
+
+        val blank = SkipReasons()
+        assertNull(ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to "  "), repo, blank))
+        assertTrue(blank.only(), blank.only().contains("unset or blank"))
+
+        val absentPath = folder.root.resolve("absent.properties").path
+        val absent = SkipReasons()
+        assertNull(ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to absentPath), repo, absent))
+        assertTrue(absent.only(), absent.only().contains("not a regular file"))
+        assertTrue(absent.only(), absent.only().contains(absentPath))
     }
 
     @Test
@@ -165,7 +184,36 @@ class ProbeEnvironmentGuardTest {
         val outside = folder.newFolder("outside").toPath()
         for (missing in completeProperties.keys) {
             val file = writeConfig(outside, completeProperties - missing)
-            assertNull("missing $missing", ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to file.toString()), repo))
+            val reasons = SkipReasons()
+            assertNull("missing $missing", ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to file.toString()), repo, reasons))
+            assertTrue(reasons.only(), reasons.only().contains(missing))
+        }
+    }
+
+    @Test
+    fun aSkipAlwaysReportsAReasonSoItIsNotMistakenForAPass() {
+        val repo = folder.newFolder("repo").toPath()
+        val outside = folder.newFolder("outside").toPath()
+        val rejected = listOf(
+            emptyMap(),
+            mapOf("sequential" to "0"),
+            mapOf("sequential" to "not-a-number"),
+            mapOf("issuerNameFormat" to "NoSuchFormat"),
+            mapOf("pollWindowMinutes" to "0"),
+        )
+        for (override in rejected) {
+            val file = writeConfig(outside, completeProperties + override)
+            val reasons = SkipReasons()
+            val config = ProbeConfig.fromEnvironment(mapOf(ProbeConfig.ENVIRONMENT_VARIABLE to file.toString()), repo, reasons)
+            if (override.isEmpty()) {
+                // The control: a complete configuration loads and reports nothing.
+                assertNotNull(config)
+                assertTrue(reasons.reasons.toString(), reasons.reasons.isEmpty())
+            } else {
+                assertNull("accepted $override", config)
+                assertEquals("exactly one reason for $override", 1, reasons.reasons.size)
+                assertTrue(reasons.only(), reasons.only().isNotBlank())
+            }
         }
     }
 

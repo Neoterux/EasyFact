@@ -49,14 +49,28 @@ animalsniffer {
     sourceSets = listOf(mainSourceSet)
 }
 
-// The test-environment probe (`CelcerProbeTest`) is configured through an environment variable.
-// Gradle does not treat an environment variable as a task input unless it is declared, so without
-// this line a second `./gradlew test` run, after the owner configures their machine, would report
+// The test-environment probe (`CelcerProbeTest`) is configured through a path to a properties
+// file that lives outside this tree. Two separate traps sit between exporting that path and the
+// probe seeing it, and both are handled here.
+//
+// A Gradle daemon's environment is fixed when the daemon starts. Exporting EASYFACT_PROBE_CONFIG
+// in a shell that then reuses an older daemon leaves the forked test JVM unable to see it, and the
+// probe skips — which looks exactly like a pass. The `easyfact.probeConfig` project property
+// travels with the build invocation instead, so it reaches a daemon of any age; prefer it.
+// Whichever source supplies the value, it is forwarded explicitly to the test JVM below.
+//
+// Gradle also does not treat an environment variable as a task input unless it is declared, so
+// without `inputs.property` a second run, after the owner configures their machine, would report
 // the task UP-TO-DATE and silently never run the probe. Declaring it makes a configuration change
-// re-run the task. The variable's value is only a path: editing the file it names, or wanting a
-// fresh submission against an unchanged configuration, still needs `--rerun`.
+// re-run the task. The value is only a path: editing the file it names, or wanting a fresh
+// submission against an unchanged configuration, still needs `--rerun`.
+val probeConfigPath = providers.gradleProperty("easyfact.probeConfig")
+    .orElse(providers.environmentVariable("EASYFACT_PROBE_CONFIG"))
+    .orElse("")
+
 tasks.withType<Test>().configureEach {
-    inputs.property("probeConfig", providers.environmentVariable("EASYFACT_PROBE_CONFIG").orElse(""))
+    inputs.property("probeConfig", probeConfigPath)
+    environment("EASYFACT_PROBE_CONFIG", probeConfigPath.get())
 }
 
 dependencies {
