@@ -163,4 +163,20 @@ class SyntheticCertificatesTest {
             )
         }
     }
+
+    @Test
+    fun rsaWithAnExplicitKeySize_mintsAKeyOfThatSize() {
+        val identity = SyntheticCertificates.rsa(1024, IssuerShape.PLAIN, notBefore, notAfter)
+        assertEquals(1024, (identity.certificate.publicKey as RSAPublicKey).modulus.bitLength())
+        identity.certificate.verify(identity.certificate.publicKey)
+    }
+
+    @Test
+    fun ecP256_mintsANonRsaIdentityThatIsValidAtTheRequestedInstant() {
+        val identity = SyntheticCertificates.ecP256(notBefore, notAfter)
+        assertEquals("EC", identity.certificate.publicKey.algorithm)
+        assertEquals("EC", identity.privateKey.algorithm)
+        identity.certificate.checkValidity(java.util.Date.from(now))
+        identity.certificate.verify(identity.certificate.publicKey)
+    }
 }

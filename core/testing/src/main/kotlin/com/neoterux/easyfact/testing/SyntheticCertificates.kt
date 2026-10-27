@@ -28,11 +28,13 @@ import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.Security
 import java.security.cert.X509Certificate
+import java.security.spec.ECGenParameterSpec
 import java.time.Instant
 import java.util.Date
 
@@ -97,8 +99,41 @@ object SyntheticCertificates {
         shape: IssuerShape = IssuerShape.PLAIN,
         notBefore: Instant,
         notAfter: Instant,
+    ): SyntheticIdentity = rsa(RSA_KEY_BITS, shape, notBefore, notAfter)
+
+    /**
+     * Like [rsa2048], with the modulus size chosen by the caller. It exists so a test can prove that
+     * a signer refuses a key of the wrong size; real identities are always [rsa2048].
+     */
+    fun rsa(
+        keyBits: Int,
+        shape: IssuerShape = IssuerShape.PLAIN,
+        notBefore: Instant,
+        notAfter: Instant,
     ): SyntheticIdentity {
-        val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(RSA_KEY_BITS) }.generateKeyPair()
+        val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(keyBits) }.generateKeyPair()
+        return selfSigned(keyPair, "SHA256withRSA", shape, notBefore, notAfter)
+    }
+
+    /**
+     * A new NIST P-256 key pair with a self-signed certificate. It exists so a test can prove that
+     * a signer returns a typed failure, rather than a `ClassCastException`, for a non-RSA certificate.
+     */
+    fun ecP256(
+        notBefore: Instant,
+        notAfter: Instant,
+    ): SyntheticIdentity {
+        val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        return selfSigned(keyPair, "SHA256withECDSA", IssuerShape.PLAIN, notBefore, notAfter)
+    }
+
+    private fun selfSigned(
+        keyPair: KeyPair,
+        signatureAlgorithm: String,
+        shape: IssuerShape,
+        notBefore: Instant,
+        notAfter: Instant,
+    ): SyntheticIdentity {
         val name = issuerName(shape)
         val holder = JcaX509v3CertificateBuilder(
             name,
@@ -107,7 +142,7 @@ object SyntheticCertificates {
             Date.from(notAfter),
             name,
             keyPair.public,
-        ).build(JcaContentSignerBuilder("SHA256withRSA").build(keyPair.private))
+        ).build(JcaContentSignerBuilder(signatureAlgorithm).build(keyPair.private))
         return SyntheticIdentity(keyPair.private, JcaX509CertificateConverter().getCertificate(holder))
     }
 
