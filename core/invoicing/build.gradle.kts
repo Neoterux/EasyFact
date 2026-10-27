@@ -85,4 +85,17 @@ dependencies {
     testImplementation(libs.junit)
     // Synthetic certificates and identifiers. Test scope only: never `implementation`.
     testImplementation(project(":core:testing"))
+    // The independent XAdES verifier (NFR-05, D-21). It is the only check available here that the
+    // QualifyingProperties are valid XAdES-BES and not merely valid XML-DSig, and it shares no
+    // code with this project's signer.
+    //
+    // Scope rule: verification only, `testImplementation` and never `implementation`. It lands on
+    // `testRuntimeClasspath`, which `verifyDependencyPolicy` deliberately does not scan; what keeps
+    // it off every shipping classpath is the `DependencyPolicy` denylist, which names
+    // `com.googlecode.xades4j` and its transitive `org.apache.santuario`, `com.google.inject`,
+    // `jakarta.xml.bind` and `org.glassfish.jaxb`.
+    //
+    // Santuario arriving here transitively is NOT an adoption of the D-04 fallback. Shipping
+    // Santuario in the app runtime remains a separate owner decision with measured sizes.
+    testImplementation(libs.xades4j)
 }
