@@ -424,4 +424,153 @@ class FacturaWriterTest {
         assertFalse("the writer must emit through CanonicalEmitter only", code.any { it.contains("\"<") })
         assertFalse(code.any { it.contains("\"</") })
     }
+
+    // ---- tax grouping and the schema-order guard (plan 02-05, task 3) ------------------------
+
+    /**
+     * Vectors chosen so that rounding each line before summing would give a different answer from
+     * summing first. If the grouping ever starts rounding per line, these are what notice.
+     */
+    private val boundaryVectors: List<Pair<List<String>, String>> = listOf(
+        listOf("0.035", "0.035") to "0.15",
+        listOf("1.005", "2.005", "3.005") to "0.15",
+        listOf("0.005", "0.005", "0.005") to "0.15",
+        listOf("33.333333", "33.333333", "33.333334") to "0.15",
+        listOf("0.015", "0.015") to "0.00",
+    )
+
+    @Test
+    fun theLineSumAndTheGroupBaseFormRenderIdenticalStringsAtEveryBoundaryVector() {
+        for ((bases, rateText) in boundaryVectors) {
+            val rate = BigDecimal(rateText)
+            val values = bases.map { BigDecimal(it) }
+            val sumOfLineTaxes = values.map { it.multiply(rate) }.fold(BigDecimal.ZERO, BigDecimal::add)
+            val taxOnTheGroupBase = values.fold(BigDecimal.ZERO, BigDecimal::add).multiply(rate)
+            assertEquals(
+                "bases=$bases rate=$rateText",
+                Money.amount(sumOfLineTaxes),
+                Money.amount(taxOnTheGroupBase),
+            )
+        }
+    }
+
+    @Test
+    fun theBoundaryVectorsReallyWouldDisagreeIfEachLineWereRoundedFirst() {
+        // Without this, the test above could pass on vectors where no rounding decision exists.
+        val disagreeing = boundaryVectors.count { (bases, rateText) ->
+            val rate = BigDecimal(rateText)
+            val values = bases.map { BigDecimal(it) }
+            val roundedPerLine = values
+                .map { BigDecimal(Money.amount(it.multiply(rate))) }
+                .fold(BigDecimal.ZERO, BigDecimal::add)
+            val onTheGroupBase = values.fold(BigDecimal.ZERO, BigDecimal::add).multiply(rate)
+            Money.amount(roundedPerLine) != Money.amount(onTheGroupBase)
+        }
+        assertTrue("at least one vector must have teeth", disagreeing > 0)
+    }
+
+    @Test
+    fun groupingSumsTheLineBasesAtFullPrecisionAndScalesOnce() {
+        val lines = listOf("0.035", "0.035").map { line(taxableBase = it, rate = "0.15") }
+        val totals = TaxGrouping.totals(lines)
+        assertEquals(1, totals.size)
+        assertEquals("0.07", Money.amount(totals.first().taxableBase))
+        assertEquals("0.01", Money.amount(totals.first().amount))
+    }
+
+    @Test
+    fun twoLinesSharingACodePairCollapseIntoOneGroup() {
+        val lines = listOf(line(taxableBase = "10", rate = "0.15"), line(taxableBase = "20", rate = "0.15"))
+        val totals = TaxGrouping.totals(lines)
+        assertEquals(1, totals.size)
+        assertEquals("30.00", Money.amount(totals.first().taxableBase))
+    }
+
+    @Test
+    fun linesWithDifferentCodePairsProduceGroupsOrderedDeterministically() {
+        val encountered = listOf(
+            line(taxableBase = "10", rate = "0.15", taxCode = "3", rateCode = "4"),
+            line(taxableBase = "10", rate = "0.15", taxCode = "2", rateCode = "4"),
+            line(taxableBase = "10", rate = "0.00", taxCode = "2", rateCode = "0"),
+        )
+        val totals = TaxGrouping.totals(encountered)
+        assertEquals(listOf("2" to "0", "2" to "4", "3" to "4"), totals.map { it.taxCode to it.rateCode })
+        // Encounter order must not matter: the reversed input produces the same groups.
+        assertEquals(totals, TaxGrouping.totals(encountered.reversed()))
+    }
+
+    @Test
+    fun aZeroRateGroupIsEmittedWithAZeroValueRatherThanOmitted() {
+        val base = SampleFactura.factura()
+        val lines = listOf(line(taxableBase = "100", rate = "0.00"))
+        val xml = String(
+            SampleFactura.write(
+                base.copy(
+                    lines = lines,
+                    invoiceInfo = base.invoiceInfo.copy(taxTotals = TaxGrouping.totals(lines)),
+                ),
+            ).root,
+            Charsets.UTF_8,
+        )
+        assertTrue(xml, xml.contains("<totalImpuesto>"))
+        assertTrue(
+            xml,
+            xml.contains(
+                "<totalImpuesto><codigo>2</codigo><codigoPorcentaje>0</codigoPorcentaje>" +
+                    "<baseImponible>100.00</baseImponible><valor>0.00</valor></totalImpuesto>",
+            ),
+        )
+    }
+
+    private fun line(
+        taxableBase: String,
+        rate: String,
+        taxCode: String = "2",
+        rateCode: String = "0",
+    ): InvoiceLine {
+        val amount = BigDecimal(taxableBase).multiply(BigDecimal(rate))
+        return SampleFactura.factura().lines.first().copy(
+            taxes = listOf(LineTax(taxCode, rateCode, BigDecimal(rate), BigDecimal(taxableBase), amount)),
+        )
+    }
+
+    /**
+     * The emitted element order of a fully populated document, pinned here in the test source.
+     *
+     * The authoritative check is the XSD gate plan 02-09 builds; this one exists so that a model
+     * refactor that silently reorders a document fails in seconds rather than at the end of a
+     * schema validation run. A change here is a change to the document the SRI receives, so it
+     * has to be made deliberately.
+     */
+    private val expectedElementOrder: List<String> = listOf(
+            "factura", "infoTributaria", "ambiente", "tipoEmision", "razonSocial", "nombreComercial", "ruc",
+            "claveAcceso", "codDoc", "estab", "ptoEmi", "secuencial", "dirMatriz", "agenteRetencion",
+            "contribuyenteRimpe", "infoFactura", "fechaEmision", "dirEstablecimiento", "contribuyenteEspecial",
+            "obligadoContabilidad", "comercioExterior", "incoTermFactura", "lugarIncoTerm", "paisOrigen",
+            "puertoEmbarque", "puertoDestino", "paisDestino", "paisAdquisicion", "tipoIdentificacionComprador",
+            "guiaRemision", "razonSocialComprador", "identificacionComprador", "direccionComprador",
+            "totalSinImpuestos", "totalSubsidio", "incoTermTotalSinImpuestos", "totalDescuento",
+            "codDocReembolso", "totalComprobantesReembolso", "totalBaseImponibleReembolso",
+            "totalImpuestoReembolso", "totalConImpuestos", "totalImpuesto", "codigo", "codigoPorcentaje",
+            "descuentoAdicional", "baseImponible", "valor", "valorDevolucionIva", "compensaciones",
+            "compensacion", "codigo", "tarifa", "valor", "propina", "fleteInternacional",
+            "seguroInternacional", "gastosAduaneros", "gastosTransporteOtros", "importeTotal", "moneda",
+            "placa", "pagos", "pago", "formaPago", "total", "plazo", "unidadTiempo", "valorRetIva",
+            "valorRetRenta", "detalles", "detalle", "codigoPrincipal", "codigoAuxiliar", "descripcion",
+            "cantidad", "precioUnitario", "precioSinSubsidio", "descuento", "precioTotalSinImpuesto",
+            "detallesAdicionales", "detAdicional", "impuestos", "impuesto", "codigo", "codigoPorcentaje",
+            "tarifa", "baseImponible", "valor", "reembolsos", "reembolsoDetalle",
+            "tipoIdentificacionProveedorReembolso", "identificacionProveedorReembolso",
+            "codPaisPagoProveedorReembolso", "tipoProveedorReembolso", "codDocReembolso", "estabDocReembolso",
+            "ptoEmiDocReembolso", "secuencialDocReembolso", "fechaEmisionDocReembolso",
+            "numeroautorizacionDocReemb", "detalleImpuestos", "detalleImpuesto", "codigo", "codigoPorcentaje",
+            "tarifa", "baseImponibleReembolso", "impuestoReembolso", "retenciones", "retencion", "codigo",
+            "codigoPorcentaje", "tarifa", "valor", "otrosRubrosTerceros", "rubro", "concepto", "total",
+            "tipoNegociable", "correo", "infoAdicional", "campoAdicional"
+    )
+
+    @Test
+    fun theElementOrderOfAFullyPopulatedDocumentIsUnchanged() {
+        assertEquals(expectedElementOrder, elementNames(fullXml()))
+    }
 }
