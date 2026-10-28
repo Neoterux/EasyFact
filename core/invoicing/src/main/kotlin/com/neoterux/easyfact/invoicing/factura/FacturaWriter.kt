@@ -196,11 +196,8 @@ object FacturaWriter {
     private val IMPUESTOS = E("impuestos")
     private val IMPUESTO = E("impuesto")
 
-    // --- third parties, negotiable and infoAdicional ---------------------------------------------
+    // --- negotiable and infoAdicional ---------------------------------------------
 
-    private val OTROS_RUBROS_TERCEROS = E("otrosRubrosTerceros")
-    private val RUBRO = E("rubro")
-    private val CONCEPTO = E("concepto", TEXT_MAX)
     private val TIPO_NEGOCIABLE = E("tipoNegociable")
     private val CORREO = E("correo", TEXT_MAX)
     private val INFO_ADICIONAL = E("infoAdicional")
@@ -243,7 +240,6 @@ object FacturaWriter {
         writeLines(out, factura.lines)
         writeRefunds(out, factura.refunds)
         writeWithholdings(out, factura.withholdings)
-        writeThirdPartyCharges(out, factura.thirdPartyCharges)
         writeNegotiable(out, factura.negotiableEmail)
         writeAdditionalInfo(out, factura.additionalFields)
         out.close()
@@ -455,18 +451,6 @@ object FacturaWriter {
             out.text(CODIGO_PORCENTAJE, withholding.rateCode)
             out.rate(TARIFA, withholding.rate)
             out.amount(VALOR, withholding.amount)
-            out.close()
-        }
-        out.close()
-    }
-
-    private fun writeThirdPartyCharges(out: Emission, charges: List<ThirdPartyCharge>) {
-        if (charges.isEmpty()) return
-        out.open(OTROS_RUBROS_TERCEROS)
-        for (charge in charges) {
-            out.open(RUBRO)
-            out.text(CONCEPTO, charge.concept)
-            out.amount(TOTAL, charge.total)
             out.close()
         }
         out.close()

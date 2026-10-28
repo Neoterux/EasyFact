@@ -49,8 +49,6 @@ data class Factura(
     val refunds: List<Refund> = emptyList(),
     /** `retenciones`; the element is absent when this is empty. */
     val withholdings: List<Withholding> = emptyList(),
-    /** `otrosRubrosTerceros`; the element is absent when this is empty. */
-    val thirdPartyCharges: List<ThirdPartyCharge> = emptyList(),
     /** `tipoNegociable` / `correo`; the block is absent when this is `null`. */
     val negotiableEmail: String? = null,
     /** `infoAdicional`; the element is absent when this is empty, and capped at fifteen entries. */

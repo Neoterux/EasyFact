@@ -198,7 +198,7 @@ class FacturaWriterTest {
             "compensaciones", "fleteInternacional", "seguroInternacional", "gastosAduaneros",
             "gastosTransporteOtros", "placa", "valorRetIva", "valorRetRenta", "codigoAuxiliar",
             "precioSinSubsidio", "detallesAdicionales", "descuentoAdicional", "valorDevolucionIva",
-            "plazo", "unidadTiempo", "reembolsos", "retenciones", "otrosRubrosTerceros",
+            "plazo", "unidadTiempo", "reembolsos", "retenciones",
             "tipoNegociable", "infoAdicional",
         )
         conditional.forEach { assertNoElement(xml, it) }
@@ -318,7 +318,7 @@ class FacturaWriterTest {
     fun theOptionalBlocksAreAbsentOnTheSampleAndPresentOnTheFullyPopulatedDocument() {
         val blocks = listOf(
             "reembolsos", "retenciones", "comercioExterior", "compensaciones",
-            "valorRetIva", "valorRetRenta", "otrosRubrosTerceros", "tipoNegociable",
+            "valorRetIva", "valorRetRenta", "tipoNegociable",
         )
         val minimal = rootXml()
         blocks.forEach { assertNoElement(minimal, it) }
@@ -565,7 +565,7 @@ class FacturaWriterTest {
             "ptoEmiDocReembolso", "secuencialDocReembolso", "fechaEmisionDocReembolso",
             "numeroautorizacionDocReemb", "detalleImpuestos", "detalleImpuesto", "codigo", "codigoPorcentaje",
             "tarifa", "baseImponibleReembolso", "impuestoReembolso", "retenciones", "retencion", "codigo",
-            "codigoPorcentaje", "tarifa", "valor", "otrosRubrosTerceros", "rubro", "concepto", "total",
+            "codigoPorcentaje", "tarifa", "valor",
             "tipoNegociable", "correo", "infoAdicional", "campoAdicional"
     )
 

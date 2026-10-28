@@ -172,7 +172,6 @@ object SampleFactura {
                 ),
             ),
             withholdings = listOf(Withholding("1", "327", BigDecimal("0"), BigDecimal("0"))),
-            thirdPartyCharges = listOf(ThirdPartyCharge("Test concept", BigDecimal("0"))),
             negotiableEmail = SyntheticIdentifiers.BILLING_EMAIL,
         )
     }

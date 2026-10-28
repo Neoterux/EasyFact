@@ -17,11 +17,9 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
-import java.math.BigDecimal
-
 /**
  * The free-form blocks of a `factura`: `infoAdicional` / `campoAdicional`, a line's
- * `detallesAdicionales` / `detAdicional`, `otrosRubrosTerceros` / `rubro` and `tipoNegociable`.
+ * `detallesAdicionales` / `detAdicional` and `tipoNegociable`.
  *
  * Type and property names are English (AGENTS.md section 2.1); the Spanish element and attribute
  * names live in [FacturaWriter] as string constants and nowhere else.
@@ -41,11 +39,3 @@ data class AdditionalField(val name: String, val value: String)
  * itself carries no text.
  */
 data class LineDetailField(val name: String, val value: String)
-
-/** One `rubro` of `otrosRubrosTerceros`. */
-data class ThirdPartyCharge(
-    /** `concepto` */
-    val concept: String,
-    /** `total` */
-    val total: BigDecimal,
-)
