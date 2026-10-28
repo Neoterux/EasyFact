@@ -101,7 +101,7 @@ object SampleFactura {
         return base.copy(
             taxInfo = base.taxInfo.copy(
                 withholdingAgentResolution = "001",
-                rimpeRegimeLegend = "CONTRIBUYENTE REGIMEN RIMPE",
+                rimpeRegimeLegend = "CONTRIBUYENTE RÉGIMEN RIMPE",
             ),
             invoiceInfo = base.invoiceInfo.copy(
                 specialTaxpayerNumber = "12345",
@@ -171,7 +171,7 @@ object SampleFactura {
                     ),
                 ),
             ),
-            withholdings = listOf(Withholding("1", "327", BigDecimal("0"), BigDecimal("0"))),
+            withholdings = listOf(Withholding("4", "327", BigDecimal("0"), BigDecimal("0"))),
             negotiableEmail = SyntheticIdentifiers.BILLING_EMAIL,
         )
     }
