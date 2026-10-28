@@ -54,6 +54,20 @@ sealed interface FacturaError {
     ) : FacturaError
 
     /**
+     * The decimal written for [element] breaks one of the schema's decimal facets: [facet] is the
+     * XSD facet name as the schema spells it (`totalDigits`, `fractionDigits`, `minInclusive`,
+     * `maxInclusive`, `minExclusive` or `maxExclusive`) and [limit] is that facet's value as the
+     * schema states it. The value is judged as written, after half-up rounding. Like every variant
+     * it never carries the amount: a total is a business figure and an error is rendered into
+     * diagnostics.
+     */
+    data class DecimalOutOfRange(
+        override val element: String,
+        val facet: String,
+        val limit: String,
+    ) : FacturaError
+
+    /**
      * [element] contains a character that XML 1.0 does not allow, so no amount of escaping can
      * make a well-formed document out of it.
      */

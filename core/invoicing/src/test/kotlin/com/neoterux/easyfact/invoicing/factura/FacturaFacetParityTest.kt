@@ -22,6 +22,7 @@ import com.neoterux.easyfact.invoicing.factura.FacturaWriter.Kind
 import com.neoterux.easyfact.invoicing.verify.SchemaKind
 import com.neoterux.easyfact.invoicing.verify.SchemaModel
 import com.neoterux.easyfact.invoicing.verify.SchemaNode
+import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -79,6 +80,39 @@ class FacturaFacetParityTest {
             if (facet.maxOccurs != schemaOccurs) {
                 lines += "DRIFT maxOccurs ${facet.path} facet=${facet.maxOccurs} schema=$schemaOccurs"
             }
+            if (facet.kind == Kind.DECIMAL) {
+                if (facet.totalDigits == null) lines += "DRIFT totalDigits ${facet.path} facet=null schema=${node.totalDigits}"
+                if (facet.fractionDigits == null) {
+                    lines += "DRIFT fractionDigits ${facet.path} facet=null schema=${node.fractionDigits}"
+                }
+                if (facet.guardLength != null) lines += "DRIFT guardLength ${facet.path} guard=${facet.guardLength} on a DECIMAL facet"
+                if (facet.totalDigits != node.totalDigits && facet.totalDigits != null) {
+                    lines += "DRIFT totalDigits ${facet.path} facet=${facet.totalDigits} schema=${node.totalDigits}"
+                }
+                if (facet.fractionDigits != node.fractionDigits && facet.fractionDigits != null) {
+                    lines += "DRIFT fractionDigits ${facet.path} facet=${facet.fractionDigits} schema=${node.fractionDigits}"
+                }
+                for ((name, mine, theirs) in listOf(
+                    Triple("minInclusive", facet.minInclusive, node.minInclusive),
+                    Triple("maxInclusive", facet.maxInclusive, node.maxInclusive),
+                    Triple("minExclusive", facet.minExclusive, node.minExclusive),
+                    Triple("maxExclusive", facet.maxExclusive, node.maxExclusive),
+                )) {
+                    if (!sameBound(mine, theirs)) lines += "DRIFT $name ${facet.path} facet=$mine schema=$theirs"
+                }
+            } else {
+                val stray = listOf(
+                    "totalDigits" to facet.totalDigits,
+                    "fractionDigits" to facet.fractionDigits,
+                    "minInclusive" to facet.minInclusive,
+                    "maxInclusive" to facet.maxInclusive,
+                    "minExclusive" to facet.minExclusive,
+                    "maxExclusive" to facet.maxExclusive,
+                )
+                for ((name, value) in stray) {
+                    if (value != null) lines += "DRIFT $name ${facet.path} facet=$value on a ${facet.kind} facet"
+                }
+            }
             if (facet.guardLength != null && node.maxLength != null) {
                 lines += "DRIFT guardLength ${facet.path} guard=${facet.guardLength} beside schema maxLength=${node.maxLength}"
             }
@@ -92,6 +126,10 @@ class FacturaFacetParityTest {
         }
         return lines.sorted()
     }
+
+    /** Bounds compare by value, so that 0 and 0.00 agree; both absent agree too. */
+    private fun sameBound(mine: BigDecimal?, theirs: BigDecimal?): Boolean =
+        if (mine == null || theirs == null) mine == null && theirs == null else mine.compareTo(theirs) == 0
 
     private fun kindsAgree(kind: Kind, schemaKind: SchemaKind): Boolean = when (kind) {
         Kind.CONTAINER -> schemaKind == SchemaKind.COMPLEX
@@ -119,6 +157,36 @@ class FacturaFacetParityTest {
             listOf("DRIFT maxLength $path facet=32 schema=300"),
             drift(mutated),
         )
+    }
+
+    @Test
+    fun aCantidadTotalDigitsOf16IsReportedAsDrift() {
+        val path = "factura/detalles/detalle/cantidad"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(totalDigits = 16) else it }
+        assertEquals(listOf("DRIFT totalDigits $path facet=16 schema=18"), drift(mutated))
+    }
+
+    @Test
+    fun aGuardLengthOnADecimalFacetIsReportedAsDrift() {
+        val path = "factura/infoFactura/importeTotal"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(guardLength = 32) else it }
+        assertEquals(listOf("DRIFT guardLength $path guard=32 on a DECIMAL facet"), drift(mutated))
+    }
+
+    @Test
+    fun aMissingMinInclusiveIsReportedAsDrift() {
+        val path = "factura/infoFactura/importeTotal"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(minInclusive = null) else it }
+        assertEquals(listOf("DRIFT minInclusive $path facet=null schema=0"), drift(mutated))
+    }
+
+    @Test
+    fun aMinInclusiveWrittenAsZeroPointZeroZeroAgreesWithZero() {
+        val path = "factura/infoFactura/importeTotal"
+        val mutated = FacturaWriter.FACETS.map {
+            if (it.path == path) it.copy(minInclusive = BigDecimal("0.00")) else it
+        }
+        assertEquals(emptyList<String>(), drift(mutated))
     }
 
     @Test

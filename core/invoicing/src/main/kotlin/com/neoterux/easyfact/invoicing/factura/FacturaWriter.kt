@@ -98,6 +98,12 @@ object FacturaWriter {
         val minLength: Int? = null,
         val maxOccurs: Int? = null,
         val guardLength: Int? = null,
+        val totalDigits: Int? = null,
+        val fractionDigits: Int? = null,
+        val minInclusive: BigDecimal? = null,
+        val maxInclusive: BigDecimal? = null,
+        val minExclusive: BigDecimal? = null,
+        val maxExclusive: BigDecimal? = null,
     ) {
         val name: String get() = path.substringAfterLast('/').removePrefix("@")
     }
