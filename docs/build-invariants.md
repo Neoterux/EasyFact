@@ -50,7 +50,7 @@ run is also the first measurement of the release-size tolerance on a machine oth
 than the one that recorded the baseline (section 6).
 
 This page was last re-read, section by section, against the `build-logic`
-sources whose content digest is `e423db445cb6`. To check whether it is still
+sources whose content digest is `3ae5966396e1`. To check whether it is still
 current, run:
 
 ```bash
@@ -399,16 +399,18 @@ permission and appears nowhere in the manifest.
 **What it enforces.** Every `http` or `https` host that appears as a string in
 the release APK's dex files is on the reviewed host list. The task prints the
 host set it found and the residual-gap statement on every run, success or
-failure, and fails if it read no dex file at all. That last branch is in the task
-but no canary drill has ever exercised it; the host-list failure is the one that
-was observed.
+failure, and fails if it read no dex file at all, or if the APK listing is
+unreadable or names no APK. The host-list failure was observed in a canary drill
+against a real build; the no-dex and listing branches are drilled only in unit
+tests, against APKs built by the test.
 
 **Command.** `./gradlew :app:verifyReleaseUrlHosts` (reached by `verifyRelease`,
 not by `check`).
 
 **Where the logic lives.** `build-logic/src/main/kotlin/easyfact/UrlHostScan.kt`
 (the reviewed hosts and the `RESIDUAL_GAP` text as constants),
-`VerifyReleaseUrlHostsTask.kt`; failing fixtures in `UrlHostScanTest.kt`.
+`VerifyReleaseUrlHostsTask.kt`; failing fixtures in `UrlHostScanTest.kt` and
+`VerifyReleaseUrlHostsTaskTest.kt`.
 
 **What it cannot see.** It sees only what R8 kept: a string R8 eliminated is
 invisible, and a host that is only ever assembled at runtime from fragments is
