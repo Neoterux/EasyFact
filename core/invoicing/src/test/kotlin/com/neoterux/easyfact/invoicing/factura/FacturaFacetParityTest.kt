@@ -24,6 +24,7 @@ import com.neoterux.easyfact.invoicing.verify.SchemaModel
 import com.neoterux.easyfact.invoicing.verify.SchemaNode
 import java.math.BigDecimal
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -274,6 +275,129 @@ class FacturaFacetParityTest {
         val path = "factura/detalles/detalle/detallesAdicionales/detAdicional"
         val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(maxOccurs = 4) else it }
         assertEquals(listOf("DRIFT maxOccurs $path facet=4 schema=3"), drift(mutated))
+    }
+
+    /**
+     * Every way [pattern] could mean one thing to the schema and another to `java.util.regex`,
+     * which on Android is backed by ICU. The patterns the vendored schema uses are limited to
+     * character classes, quantifiers, groups, alternation, literals and the `\n` escape, whose
+     * meaning is the same in all three. Anything else is reported by name, so a schema revision
+     * cannot introduce a pattern the writer would read differently from the SRI.
+     *
+     * A hyphen followed by an opening bracket is only subtraction inside a class: outside one it is
+     * a literal pair, as in `[0-9]{3}-[0-9]{3}`.
+     */
+    private fun dialectIssues(pattern: String): List<String> {
+        val issues = mutableListOf<String>()
+        var inClass = false
+        var i = 0
+        while (i < pattern.length) {
+            val c = pattern[i]
+            val next = pattern.getOrNull(i + 1)
+            when {
+                c == '\\' -> {
+                    if (next == 'n') {
+                        i++
+                    } else {
+                        issues += "escape \\${next ?: ""} at $i"
+                        i++
+                    }
+                }
+                inClass && c == '[' -> issues += "nested or subtracted class at $i"
+                inClass && c == '&' && next == '&' -> issues += "class intersection at $i"
+                inClass && c == ']' -> inClass = false
+                inClass -> Unit
+                c == '[' -> inClass = true
+                c == '^' || c == '$' -> issues += "anchor '$c' outside a class at $i"
+                c == '.' -> issues += "dot outside a class at $i"
+                c == '(' && next == '?' -> issues += "extended group at $i"
+                (c == '*' || c == '+' || c == '?' || c == '}') && (next == '?' || next == '+') ->
+                    issues += "lazy or possessive quantifier at ${i + 1}"
+            }
+            i++
+        }
+        if (inClass) issues += "unterminated class"
+        return issues
+    }
+
+    private fun schemaPatterns(): List<String> = schema.values.flatMap { it.patterns }.distinct()
+
+    @Test
+    fun theSchemaUsesOnlyPatternConstructsWithOneMeaningInEveryDialect() {
+        val patterns = schemaPatterns()
+        assertTrue("the schema states no pattern, so the guard would prove nothing", patterns.size > 10)
+        val report = patterns.associateWith { dialectIssues(it) }.filterValues { it.isNotEmpty() }
+        assertEquals(emptyMap<String, List<String>>(), report)
+    }
+
+    @Test
+    fun theDialectGuardRejectsABackslashDEscape() {
+        assertEquals(listOf("escape \\d at 0"), dialectIssues("\\d{3}"))
+    }
+
+    @Test
+    fun theDialectGuardRejectsEveryOtherEscapeButTheLineFeed() {
+        for (escape in listOf("i", "c", "d", "w", "s", "p{L}", "I", "C", "D", "W", "S", "P{L}", "\\")) {
+            assertTrue(escape, dialectIssues("[a]\\$escape").isNotEmpty())
+        }
+        assertEquals(emptyList<String>(), dialectIssues("[^\\n]*"))
+    }
+
+    @Test
+    fun theDialectGuardRejectsClassSubtractionAndNestingButNotALiteralHyphenBeforeAClass() {
+        assertEquals(listOf("nested or subtracted class at 5"), dialectIssues("[a-z-[aeiou]]"))
+        assertEquals(listOf("nested or subtracted class at 2"), dialectIssues("[a[b]]"))
+        assertEquals(listOf("class intersection at 2"), dialectIssues("[a&&b]"))
+        assertEquals(emptyList<String>(), dialectIssues("[0-9]{3}-[0-9]{3}-[0-9]{9}"))
+    }
+
+    @Test
+    fun theDialectGuardRejectsAnchorsDotsExtendedGroupsAndLazyQuantifiers() {
+        assertEquals(listOf("anchor '^' outside a class at 0", "anchor '$' outside a class at 4"), dialectIssues("^abc$"))
+        assertEquals(listOf("dot outside a class at 1"), dialectIssues("a.b"))
+        assertEquals(listOf("extended group at 0"), dialectIssues("(?:a)"))
+        assertEquals(listOf("lazy or possessive quantifier at 2"), dialectIssues("a*?"))
+        assertEquals(listOf("lazy or possessive quantifier at 6"), dialectIssues("a{1,3}+"))
+        assertEquals(emptyList<String>(), dialectIssues("(NEGOCIO POPULAR - )?RÉGIMEN"))
+    }
+
+    @Test
+    fun everyCatalogueValueSatisfiesItsElementsSchemaPatterns() {
+        val catalogued = FacturaWriter.FACETS.filter { it.catalogue != null }
+        assertEquals(
+            listOf(
+                "factura/infoTributaria/ambiente",
+                "factura/infoTributaria/tipoEmision",
+                "factura/infoTributaria/codDoc",
+                "factura/infoFactura/tipoIdentificacionComprador",
+                "factura/infoFactura/totalConImpuestos/totalImpuesto/codigo",
+                "factura/detalles/detalle/impuestos/impuesto/codigo",
+                "factura/reembolsos/reembolsoDetalle/detalleImpuestos/detalleImpuesto/codigo",
+            ),
+            catalogued.map { it.path },
+        )
+        for (facet in catalogued) {
+            val schemaNode = checkNotNull(schema[facet.path])
+            assertTrue("${facet.path} has no schema pattern", schemaNode.patterns.isNotEmpty())
+            for (code in checkNotNull(facet.catalogue)) {
+                assertTrue("${facet.path}: $code is outside the schema's pattern language", facet.acceptsFormat(code))
+            }
+        }
+    }
+
+    @Test
+    fun aCatalogueValueOutsideThePatternLanguageIsCaught() {
+        val facet = facet("factura/infoTributaria/ambiente").copy(catalogue = setOf("1", "2", "3"))
+        assertTrue(facet.catalogue!!.any { !facet.acceptsFormat(it) })
+    }
+
+    @Test
+    fun aFacetAcceptsAValueOnlyWhenOnePatternMatchesItInFull() {
+        val payment = facet("factura/infoFactura/pagos/pago/formaPago")
+        for (code in listOf("01", "09", "10", "19", "20", "21")) assertTrue(code, payment.acceptsFormat(code))
+        for (code in listOf("00", "22", "1", "001", "20 ", " 20")) assertFalse(code, payment.acceptsFormat(code))
+        assertFalse(facet("factura/infoTributaria/dirMatriz").acceptsFormat("a\nb"))
+        assertTrue(facet("factura/infoTributaria/dirMatriz").acceptsFormat("a\rb"))
     }
 
     @Test

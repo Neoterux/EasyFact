@@ -26,6 +26,7 @@ import com.neoterux.easyfact.invoicing.verify.C14nIdentityOracle
 import com.neoterux.easyfact.invoicing.verify.Jsr105Verifier
 import com.neoterux.easyfact.invoicing.verify.XsdGate
 import java.math.BigDecimal
+import java.time.LocalDate
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -543,6 +544,159 @@ class FacturaWriterTest {
         val rendered = error(base.copy(taxInfo = base.taxInfo.copy(headOfficeAddress = "Secret\nStreet"))).toString()
         assertEquals("InvalidFormat(element=dirMatriz)", rendered)
         assertFalse(rendered, rendered.contains("Secret"))
+    }
+
+    @Test
+    fun aRucNotEndingInZeroZeroOneIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        val ruc = "9".repeat(10) + "002"
+        assertEquals(13, ruc.length)
+        assertEquals(FacturaError.InvalidFormat("ruc"), error(base.copy(taxInfo = base.taxInfo.copy(ruc = ruc))))
+    }
+
+    @Test
+    fun aFortyEightDigitAccessKeyIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        val key = "1".repeat(48)
+        assertEquals(
+            FacturaError.InvalidFormat("claveAcceso"),
+            error(base.copy(taxInfo = base.taxInfo.copy(accessKey = key))),
+        )
+    }
+
+    @Test
+    fun aFreeTextRimpeLegendIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("contribuyenteRimpe"),
+            error(base.copy(taxInfo = base.taxInfo.copy(rimpeRegimeLegend = "Test regime legend"))),
+        )
+    }
+
+    @Test
+    fun bothRimpeLegendsTheSchemaAllowsAreWrittenAndValidate() {
+        val base = SampleFactura.factura()
+        for (legend in listOf("CONTRIBUYENTE R\u00c9GIMEN RIMPE", "CONTRIBUYENTE NEGOCIO POPULAR - R\u00c9GIMEN RIMPE")) {
+            assertWritesAndValidates(base.copy(taxInfo = base.taxInfo.copy(rimpeRegimeLegend = legend)))
+        }
+    }
+
+    @Test
+    fun aWithholdingCodeOtherThanFourIsInvalidFormat() {
+        val full = SampleFactura.fullyPopulated()
+        val withholding = full.withholdings.single().copy(code = "5")
+        assertEquals(FacturaError.InvalidFormat("codigo"), error(full.copy(withholdings = listOf(withholding))))
+    }
+
+    @Test
+    fun aFormaPagoOfTwentyIsWrittenAndValidatesAndTwentyTwoIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        fun withMethod(code: String) =
+            base.copy(invoiceInfo = base.invoiceInfo.copy(payments = listOf(Payment(code, BigDecimal("100")))))
+        assertWritesAndValidates(withMethod("20"))
+        assertEquals(FacturaError.InvalidFormat("formaPago"), error(withMethod("22")))
+    }
+
+    @Test
+    fun aLowercaseIncoTermFacturaIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        val export = ExportInfo(code = "EXPORTADOR", incoTerm = "abc")
+        assertEquals(
+            FacturaError.InvalidFormat("incoTermFactura"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(exportInfo = export))),
+        )
+    }
+
+    @Test
+    fun aDispatchNoteWithAOneDigitSequentialIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("guiaRemision"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(dispatchNote = "001-003-1"))),
+        )
+    }
+
+    @Test
+    fun aCorreoContainingALineFeedIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("correo"),
+            error(base.copy(negotiableEmail = "test@example.com\nother@example.com")),
+        )
+    }
+
+    @Test
+    fun aRateCodeThatIsNotAllDigitsIsInvalidFormatInEveryBlockThatCarriesIt() {
+        val base = SampleFactura.factura()
+        val total = TaxTotal("2", "1a", BigDecimal("100"), BigDecimal("0"))
+        assertEquals(
+            FacturaError.InvalidFormat("codigoPorcentaje"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(taxTotals = listOf(total)))),
+        )
+        val tax = LineTax("2", "1a", BigDecimal("0"), BigDecimal("100"), BigDecimal("0"))
+        assertEquals(
+            FacturaError.InvalidFormat("codigoPorcentaje"),
+            error(base.copy(lines = listOf(base.lines.single().copy(taxes = listOf(tax))))),
+        )
+    }
+
+    @Test
+    fun anIssueDateInNineteenNinetyNineIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("fechaEmision"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(issueDate = LocalDate.of(1999, 1, 1)))),
+        )
+    }
+
+    @Test
+    fun aBuyerNameContainingALineFeedIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("razonSocialComprador"),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(buyerLegalName = "Test\nCustomer"))),
+        )
+    }
+
+    @Test
+    fun aCarriageReturnIsNotALineFeedAndTheSchemaAllowsIt() {
+        val base = SampleFactura.factura()
+        val written = rootXml(base.copy(invoiceInfo = base.invoiceInfo.copy(buyerAddress = "Calle Falsa\r789")))
+        assertTrue(written, written.contains("Calle Falsa&#xD;789"))
+    }
+
+    @Test
+    fun aFiscalMachineBrandContainingALineFeedIsInvalidFormat() {
+        val full = SampleFactura.everyElement()
+        val machine = checkNotNull(full.fiscalMachine).copy(brand = "Test\nBrand")
+        assertEquals(FacturaError.InvalidFormat("marca"), error(full.copy(fiscalMachine = machine)))
+    }
+
+    @Test
+    fun aRefundCompensationCodeOfTwoIsInvalidFormatAndOneIsWritten() {
+        val full = SampleFactura.everyElement()
+        val refund = full.refunds.single()
+        fun withCode(code: String) =
+            full.copy(refunds = listOf(refund.copy(compensations = listOf(Compensation(code, BigDecimal("0"), BigDecimal("0"))))))
+        assertEquals(FacturaError.InvalidFormat("codigo"), error(withCode("2")))
+        assertWritesAndValidates(withCode("1"))
+    }
+
+    @Test
+    fun anInvoiceCompensationCodeOfTwoIsInvalidFormat() {
+        val full = SampleFactura.fullyPopulated()
+        val info = full.invoiceInfo.copy(compensations = listOf(Compensation("2", BigDecimal("0"), BigDecimal("0"))))
+        assertEquals(FacturaError.InvalidFormat("codigo"), error(full.copy(invoiceInfo = info)))
+    }
+
+    @Test
+    fun aCodeInsideThePatternButOutsideTheCatalogueKeepsItsOwnFailure() {
+        val base = SampleFactura.factura()
+        val outcome = error(base.copy(invoiceInfo = base.invoiceInfo.copy(buyerIdentificationTypeCode = "09")))
+        assertEquals(
+            FacturaError.CodeOutsideCatalogue("tipoIdentificacionComprador", "09", setOf("04", "05", "06", "07", "08")),
+            outcome,
+        )
     }
 
     @Test
