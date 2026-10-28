@@ -197,6 +197,31 @@ Practical notes:
   development loop, but a spike with the real certificate against `celcer` is
   required to close the gap.
 
+**What has been established, and how (as of 2026-10-28).** Everything below
+was established offline. None of it is an SRI verdict.
+
+- *The signer emits the mandatory parameter set.* The output uses RSA-SHA1,
+  SHA-1 digests, inclusive C14N, `id="comprobante"` on the root and three
+  references. Two independent verifiers accept it: the JDK's XML-DSig
+  implementation for the XML-DSig layer, and xades4j, which reports the form as
+  XAdES-BES. Both verifiers follow the public specifications; neither is the
+  SRI's verifier.
+- *The bytes signed are the bytes transmitted.* A test asserts that the
+  submission payload is the signed octets, and a transport that re-serializes is
+  committed as the case that must fail it. The digest covers the root element
+  only, while the transmitted bytes carry the XML declaration. Whether the SRI
+  accepts the declaration has not been observed.
+- *The signer is byte-identical on Android.* On API 31, 34 and 37 emulators,
+  signing with six synthetic certificates produced exactly the JVM's bytes,
+  and the platform rendered the issuer names exactly as the JVM does. API 32
+  and 33 and any physical device are unmeasured. On API 31 the platform keystore
+  refuses the modern AES-256 PKCS#12 encoding; it opens the legacy one.
+- *The writer covers `factura` 1.1.0.* Its unsigned output, including a fully
+  populated document, validates against the published schema. That is the only
+  evidence for the full coverage: no part of it has been put to the test
+  environment, and the element set below is all that the first submission will
+  carry.
+
 **Status of the test-environment round trip (as of 2026-10-28): not yet run.**
 No document built by this project has been submitted to the SRI. The run with
 a real certificate against `celcer` is reserved for the repository owner once
@@ -495,49 +520,68 @@ to how the file name reaches the mail client.
 Resolved by this revision: schema version (1.1.0), IVA catalogue, emission
 types (only `1`), decimal scales.
 
-Still open — resolve in the `celcer` test environment before production:
+This is the single list of open questions. Each is answered by observation, in a
+later probe session against the `celcer` test environment or by the source named,
+and must not be guessed at. Tick an item only with the date and the observation
+that answered it.
 
-1. SRI behaviour when resending an authorized or `NO AUTORIZADO` document
-   with the same access key.
-2. Whether error 43 precedes 45, and the meaning of an empty authorization
-   result.
-3. The real tolerance window behind error 65 (extemporaneous issue date).
-4. Whether Annex 26 "RUC Proveedor" applies to a self-distributed
-   open-source app.
-5. Whether real CA-issued `.p12` files load through Android's PKCS12
-   keystore on API 31+. Partly measured with synthetic files: on API 31 the
-   platform keystore refuses the modern AES-256/HmacSHA256 PKCS#12 encoding
-   and opens the legacy PBE one, while API 34 and 37 open both. API 32 and 33
-   are unmeasured. A real CA file has not been tried on any level.
-6. Any published rounding tolerance behind error 52.
-7. Document retention obligations (7 years is reported; Art. 41 text
-   unconfirmed).
-8. Which IVA code applies to the issuer's services — a tax-advice question.
-9. Whether the SRI accepts this project's signature at all, and which
-   `X509IssuerName` rendering it accepts. No submission has been made, so
-   both remain open until the owner's real-certificate run.
-10. Behaviours to probe in the test environment before production: where
-    errors 39 and 52 surface; reception-to-authorization latency as a
-    distribution, not a single figure; the error-65 tolerance; resend
-    semantics; what authorization answers for an unknown key or one still
-    being processed; which amount mismatch produces 52; whether an
-    `ambiente` mismatch produces 58; and the full set of authorization state
-    strings.
-11. Whether the submission is accepted with the XML declaration present in
-    the transmitted bytes, as the Ficha requires.
-12. Whether the SOAP wrapper names in the modelled response fixtures match
-    the service WSDL.
-13. Which file the SRI portal hands out as the customer-facing authorized
-    XML, and whether it matches the `<autorizacion>` envelope. This needs an
-    owner-side download and comparison.
-14. Whether the test environment accepts a document carrying the blocks
-    listed under "Blocks not carried" in section 6. No submission has yet
-    exercised them.
-15. Which published revision of `factura_V1.1.0.xsd` is current. The copy
-    vendored for the schema gate declares no `ds:Signature` inside
-    `<factura>`, so signed documents cannot be schema-validated against it
-    and the gate validates the unsigned document. Another circulating
-    revision does declare it.
+**The signature and the submission**
+
+- [ ] Does the SRI accept a document signed by this project's signer, and which
+  `X509IssuerName` rendering does it accept?
+- [ ] Is the submission accepted with the XML declaration present in the
+  transmitted bytes, as the Ficha requires?
+- [ ] Does the test environment accept a document carrying the blocks listed
+  under "Blocks not carried" in section 6, none of which any submission has yet
+  exercised?
+- [ ] Do the SOAP wrapper element names in the modelled response fixtures match
+  the service WSDL?
+
+**Test-environment behaviour**
+
+- [ ] Where do errors 39 and 52 surface (reception or authorization), and what is
+  the reception-to-authorization latency distribution?
+- [ ] What is the real tolerance window behind error 65 (extemporaneous issue
+  date)?
+- [ ] What happens on a resend with the same access key of an authorized
+  document, of a `NO AUTORIZADO` document, and of a corrected `DEVUELTA`
+  document?
+- [ ] What does the authorization service return for an unknown access key, and
+  for one still being processed? Does error 43 precede 45?
+- [ ] Which amount mismatch yields error 52, is there a published rounding
+  tolerance behind it, and does the SRI expect IVA rounded per line or on the
+  group base?
+- [ ] Does an environment mismatch between the access key's digit and the
+  document's `ambiente` yield error 58?
+- [ ] What is the full set of authorization state strings the service returns?
+
+**Certificates and devices**
+
+- [ ] Does a real CA-issued `.p12` load through Android's PKCS12 keystore on
+  API 31 and later? With synthetic files, API 31 refuses the modern AES-256
+  encoding and opens the legacy one, API 34 and 37 open both, and API 32 and 33
+  are unmeasured.
+
+**Delivery and regulation**
+
+- [ ] Which file does the SRI portal hand out as the customer-facing authorized
+  XML, and does it match the `<autorizacion>` envelope?
+- [ ] Is the supplier-RUC field (Annex 26 "RUC Proveedor") accepted in the
+  additional-information block, and does it apply to a self-distributed
+  open-source app?
+- [ ] What document retention period does the law require? Seven years is
+  reported, but the Art. 41 text is unconfirmed.
+- [ ] Which IVA code applies to the issuer's services? This is a tax-advice
+  question.
+
+**Specification and licensing**
+
+- [ ] Which published revision of `factura_V1.1.0.xsd` is current? The copy
+  vendored for the schema gate declares no `ds:Signature` inside `<factura>`;
+  another circulating revision does.
+- [ ] May the vendored SRI schema be redistributed in this repository?
+- [ ] Is the test-scope xades4j dependency, which declares the LGPL with no
+  version, compatible with this project's GPLv3?
 
 ## 12. Sources
 
