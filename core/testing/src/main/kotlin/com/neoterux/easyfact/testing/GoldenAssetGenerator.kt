@@ -92,12 +92,25 @@ object GoldenAssetGenerator {
          * revisited. `0` means the case is expected to open on every level.
          */
         val opensFromApi: Int = 0,
+        /**
+         * The correct password for the store, required for [Expectation.REJECTS_PASSWORD] cases and `null`
+         * for [Expectation.SIGNS] cases. The device opens the store with it first, so a refusal with
+         * [devicePassword] afterwards can only be the password and never an unreadable store.
+         */
+        val controlPassword: String? = null,
     )
 
     /**
      * The cases research named as the ones that can differ between ART and the JVM. The issuer cases
      * use the legacy PKCS#12 encoding so that a device which cannot open the modern encoding still
      * answers the issuer-name question; the two encodings are separate cases of their own.
+     *
+     * The rejection cases are two, on purpose. `wrong-password` uses the legacy encoding, which opens on
+     * every measured level (API 31, 34 and 37), so a refusal there can only be the password: the same
+     * case on the AES encoding passed vacuously on API 31, where the file cannot be read at all.
+     * `wrong-password-modern-aes` keeps the AES encoding covered from the level at which it opens.
+     * Each rejection case carries a [GoldenCase.controlPassword] that the device must open the store with
+     * before the wrong password is tried.
      */
     val CASES: List<GoldenCase> = listOf(
         GoldenCase(
@@ -146,11 +159,13 @@ object GoldenAssetGenerator {
         ),
         GoldenCase(
             "wrong-password",
-            "A valid PKCS#12 opened with the wrong password",
+            "A valid legacy-encoded PKCS#12 opened with the wrong password",
             IssuerShape.PLAIN,
-            Pkcs12Encoding.MODERN_AES,
+            Pkcs12Encoding.LEGACY_PBE,
             Expectation.REJECTS_PASSWORD,
             WRONG_PASSWORD,
+            opensFromApi = 0,
+            controlPassword = SyntheticCertificates.DEFAULT_PASSWORD,
         ),
     )
 
@@ -194,6 +209,7 @@ object GoldenAssetGenerator {
             manifest["$prefix.encoding"] = case.encoding.name
             manifest["$prefix.expect"] = case.expectation.name
             manifest["$prefix.opensFromApi"] = case.opensFromApi.toString()
+            case.controlPassword?.let { manifest["$prefix.controlPassword"] = it }
             for ((formatName, format) in IssuerNameFormats.ALL) {
                 manifest["$prefix.issuer.$formatName"] = format.render(identity.certificate)
             }

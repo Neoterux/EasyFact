@@ -65,6 +65,15 @@ import org.junit.runners.Parameterized
  * opened on API 34 and 37. **API 32 and 33 are unmeasured and are assumed to refuse like 31**: the
  * threshold is 34, the lowest level measured to open it. If an emulator on 32 or 33 opens the file the
  * test fails and the threshold must be lowered with a measurement.
+ *
+ * **Password rejection.** A rejection case carries a `controlPassword`, the correct one. Where the store
+ * opens on this level, the test opens it with the control password first and fails if that does not
+ * succeed, then opens it with the wrong password and requires an `IOException`: a store that cannot be
+ * read at all fails the case instead of passing it. `wrong-password` uses the legacy encoding, which
+ * opens on every measured level, so every level runs at least one real password rejection (logged as
+ * `password-refused-after-control-opened`). `wrong-password-modern-aes` keeps the AES encoding covered:
+ * below its `opensFromApi` the test asserts the encoding refusal and logs it as
+ * `encoding-refused-below-api-N`, never as a password rejection.
  */
 @RunWith(Parameterized::class)
 class GoldenBytesSigningTest(private val caseId: String) {
@@ -86,14 +95,42 @@ class GoldenBytesSigningTest(private val caseId: String) {
         val expectations = manifest.values.map { it.expect }.toSet()
         assertTrue("manifest has no case that signs: $expectations", "SIGNS" in expectations)
         assertTrue("manifest has no case that rejects a password: $expectations", "REJECTS_PASSWORD" in expectations)
+        val api = Build.VERSION.SDK_INT
+        val realRejections = manifest.filterValues { it.expect == "REJECTS_PASSWORD" && it.opensFromApi <= api }
+        assertTrue(
+            "manifest has no password-rejection case whose store opens on API $api, so this level would run no " +
+                "real password rejection: ${manifest.filterValues { it.expect == "REJECTS_PASSWORD" }.mapValues { it.value.opensFromApi }}",
+            realRejections.isNotEmpty(),
+        )
     }
 
+    /**
+     * A wrong password is refused for the password's sake or the case fails. Below `opensFromApi` the store
+     * cannot be read at all, so the encoding refusal is asserted and logged as such. Otherwise the store is
+     * first opened with the control password, because a store that cannot be opened would refuse any
+     * password and the wrong-password check would prove nothing.
+     */
     private fun assertWrongPasswordIsRefused(case: GoldenCase, api: Int) {
+        val control = case.controlPassword
+        assertTrue("rejection case $caseId has no controlPassword in the manifest, so it could pass vacuously", !control.isNullOrEmpty())
+        if (api < case.opensFromApi) {
+            assertRefusedToOpen(case, api, control!!)
+            return
+        }
         try {
-            openStore(case)
+            openStore(case, control!!)
+        } catch (e: Exception) {
+            fail(
+                "API $api could not open the ${case.encoding} PKCS#12 of case $caseId with its CONTROL password " +
+                    "(${e.javaClass.name}: ${e.message}); a wrong-password refusal of this store would prove nothing",
+            )
+            return
+        }
+        try {
+            openStore(case, case.password)
         } catch (e: IOException) {
             // The documented failure of KeyStore.load for a wrong password or a corrupt store.
-            Log.i(TAG, "api=$api case=$caseId outcome=password-refused-with-${e.javaClass.simpleName}")
+            Log.i(TAG, "api=$api case=$caseId encoding=${case.encoding} outcome=password-refused-after-control-opened")
             return
         }
         fail("API $api opened the PKCS#12 of case $caseId with the wrong password; it must refuse with an IOException")
@@ -104,9 +141,9 @@ class GoldenBytesSigningTest(private val caseId: String) {
      * `IOException` whose cause chain names the MAC or key failure. Anything else, including a
      * successful open, is a failure, because the expectation no longer describes the platform.
      */
-    private fun assertRefusedToOpen(case: GoldenCase, api: Int) {
+    private fun assertRefusedToOpen(case: GoldenCase, api: Int, password: String = case.password) {
         try {
-            loadIdentity(case)
+            openStore(case, password)
         } catch (e: IOException) {
             val chain = generateSequence<Throwable>(e) { it.cause }.toList()
             val namesMacOrKeyFailure = chain.any {
@@ -117,7 +154,8 @@ class GoldenBytesSigningTest(private val caseId: String) {
                     "reason: ${chain.joinToString(" <- ") { "${it.javaClass.name}: ${it.message}" }}",
                 namesMacOrKeyFailure,
             )
-            Log.i(TAG, "api=$api case=$caseId encoding=${case.encoding} outcome=refused-as-expected-below-api-${case.opensFromApi}")
+            val outcome = if (case.expect == "REJECTS_PASSWORD") "encoding-refused-below-api-${case.opensFromApi}" else "refused-as-expected-below-api-${case.opensFromApi}"
+            Log.i(TAG, "api=$api case=$caseId encoding=${case.encoding} outcome=$outcome")
             return
         } catch (e: Exception) {
             fail("API $api failed to open the ${case.encoding} PKCS#12 of case $caseId with ${e.javaClass.name}, not the expected IOException: ${e.message}")
@@ -185,8 +223,8 @@ class GoldenBytesSigningTest(private val caseId: String) {
         }
     }
 
-    private fun openStore(case: GoldenCase): KeyStore =
-        KeyStore.getInstance("PKCS12").apply { load(ByteArrayInputStream(readAsset("$ASSET_DIR/${case.p12}")), case.password.toCharArray()) }
+    private fun openStore(case: GoldenCase, password: String = case.password): KeyStore =
+        KeyStore.getInstance("PKCS12").apply { load(ByteArrayInputStream(readAsset("$ASSET_DIR/${case.p12}")), password.toCharArray()) }
 
     private fun loadIdentity(case: GoldenCase): SigningIdentity {
         val store = openStore(case)
@@ -219,6 +257,7 @@ class GoldenBytesSigningTest(private val caseId: String) {
         val description: String,
         val p12: String,
         val password: String,
+        val controlPassword: String?,
         val encoding: String,
         val expect: String,
         val expectedSigned: String?,
@@ -251,6 +290,7 @@ class GoldenBytesSigningTest(private val caseId: String) {
                     description = properties.getProperty("$prefix.description"),
                     p12 = properties.getProperty("$prefix.p12"),
                     password = properties.getProperty("$prefix.password"),
+                    controlPassword = properties.getProperty("$prefix.controlPassword"),
                     encoding = properties.getProperty("$prefix.encoding"),
                     expect = properties.getProperty("$prefix.expect"),
                     expectedSigned = properties.getProperty("$prefix.expectedSigned"),
