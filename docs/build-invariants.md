@@ -16,10 +16,20 @@ as much a part of the gate as its failure message.
 | --- | --- | --- |
 | `./gradlew check` | the per-commit gates (everything except the release-artifact gates) | every push and pull request, and locally before you commit |
 | `./gradlew verifyRelease` | the release-artifact gates: `checkReleaseSize`, `verifyKeepRules`, `verifyReleaseUrlHosts` | every push and pull request, and locally before a release |
+| `./gradlew :app:verifyDeviceMatrix` | the device matrix: the golden-byte signing test on API 31, 34 and 37 emulators, and the check that every device really ran | locally, when signing, certificate loading or the signer's inputs change; not in CI yet |
 
-Both are run by `.github/workflows/check.yml`. The release gates are off `check`
-on purpose: they force a full release build and an App Bundle, which is too slow
-for the edit loop.
+The first two are run by `.github/workflows/check.yml`. The release gates are off
+`check` on purpose: they force a full release build and an App Bundle, which is
+too slow for the edit loop.
+
+`verifyDeviceMatrix` is the second named exception to "every gate attaches to
+`check`" (the owner's decision in plan 02-08; the first is `verifyRelease`). Three
+emulators cost minutes and gigabytes of system images, and the workflow has never
+run, so adding them there would put an unproven job in front of an unproven
+workflow. The price of the exception is that a gate off `check` can be forgotten:
+run it whenever `:core:invoicing` signing code, `:core:testing`'s certificate minting,
+or the PKCS#12 handling changes. A CI job for it, triggered manually, is the intended
+next step once the base workflow has run once. See "Device matrix: `verifyDeviceMatrix`" below.
 
 The whole build runs with the Gradle configuration cache enabled and
 `--configuration-cache-problems=fail` (`gradle.properties`, AGENTS.md section
@@ -384,6 +394,58 @@ invisible even when the class that assembles it is in the dex (a canary drill
 showed both). It also cannot see reflection, a WebView, a native library, or an
 allowlisted library that itself phones home. The scan is a byte-level search for
 URL-shaped strings, not a dex parse and not a network monitor.
+
+## Device matrix: `verifyDeviceMatrix`
+
+**What it enforces.** The golden-byte test (`app/src/androidTest/.../GoldenBytesSigningTest.kt`)
+passes on an API 31, an API 34 and an API 37 emulator: each loads a freshly minted PKCS#12 with
+`KeyStore.getInstance("PKCS12")`, signs a fixed document with `XadesBesSigner` using a fixed
+`IdSource` and signing time, and produces exactly the bytes the JVM produced for the same inputs.
+It also compares the platform's issuer-name renderings with the JVM's, and requires that a wrong
+password is refused with an `IOException`. The cases come from a manifest the generator writes, not
+from a list in the test.
+
+**Command.** `./gradlew :app:verifyDeviceMatrix` (not reached by `check`, see "How the gates run").
+The first run downloads three arm64 system images, several gigabytes each.
+
+**Where the logic lives.** `app/build.gradle.kts` (`android.testOptions.managedDevices`: devices
+`api31`, `api34`, `api37`, group `matrix`), `AppGatesPlugin.kt` (the aggregate and the asset wiring),
+`GenerateGoldenSigningAssetsTask.kt` and `GoldenAssetCheck.kt` (asset generation and its completeness
+check), `VerifyDeviceMatrixResultsTask.kt` and `DeviceMatrixResults.kt` (the verdict), and
+`core/testing/.../GoldenAssetGenerator.kt` (the cases). Failing fixtures: `DeviceMatrixResultsTest.kt`
+and `GoldenAssetCheckTest.kt`.
+
+**Why a verdict task.** The emulator task's exit code is not evidence that a test ran. The aggregate
+reads the JUnit XML for every declared device and fails if a device left no result, ran zero tests,
+skipped them all, or recorded a failure.
+
+**Image source.** `aosp` (the plain "default" arm64 image) is tried first. If an `aosp` image cannot
+be provisioned on the host, pass `-Peasyfact.deviceImageSource=google` to use the Google APIs images
+and record the substitution; the matrix fails if neither provisions. The ATD images are not an
+option: they do not serve API 31, 34 or 37.
+
+**Provisioning caveat.** The three `api*Setup` tasks download concurrently, and a first run that
+fetched all three images at once left the API 31 image half-extracted with a "complete" message and
+then failed with `System image does not exist`. Installing that image once with `sdkmanager` made the
+matrix run; if a first run fails this way, install the missing image first or run with
+`--max-workers=1`.
+
+**Standing result (2026-10-27, Apple Silicon host, `aosp` images).** The matrix is red on API 31 by
+design and green on API 34 and 37. On API 31 the case `p12-modern-aes` fails with
+`IOException: error constructing MAC: InvalidKeyException: No installed provider supports this key`:
+API 31's PKCS#12 keystore cannot open the AES-256 / HmacSHA256 encoding that a current JDK or
+OpenSSL 3 writes. The legacy encoding opens on all three levels, and every case that opens produced
+the JVM's bytes. The failure is left visible rather than recorded as an expected refusal, so the
+decision of what the app does with such a file (reject it with a plain-language message, or re-encode
+it) is made in the certificate-handling phase, not hidden in a test table. API 32 and 33 were not run,
+so where the encoding starts to open is not measured.
+
+**What it cannot see.** It proves byte equality for six synthetic certificates on three emulators on an
+Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing
+about a real certificate authority's files, a hardware-backed key, a physical device's vendor
+provider, an x86 emulator, or any API level between and beyond the three. The keys are derived from
+fixed seeds so the expected output is reproducible; they are synthetic and protect nothing. The golden
+assets live under `app/build/`, are added to the instrumented-test APK only, and are never tracked.
 
 ## Device-to-device transfer is UNVERIFIED
 

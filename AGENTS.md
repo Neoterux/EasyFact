@@ -455,6 +455,7 @@ an afterthought.
 ./gradlew connectedAndroidTest   # instrumented tests (device or emulator)
 ./gradlew lint                   # Android Lint
 ./gradlew verifyRelease          # release-artifact gates: size baseline, keep rules, release-dex URL hosts
+./gradlew :app:verifyDeviceMatrix # golden-byte signing test on API 31, 34 and 37 emulators (heavy; not part of check)
 ./gradlew --stop                 # stop daemons if the build misbehaves
 ```
 

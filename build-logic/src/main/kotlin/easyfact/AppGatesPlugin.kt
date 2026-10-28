@@ -18,6 +18,7 @@
 package easyfact
 
 import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import com.android.build.api.variant.ApplicationVariant
 import org.gradle.api.GradleException
@@ -50,6 +51,7 @@ class AppGatesPlugin : Plugin<Project> {
             }
 
             val goldenAssets = registerGoldenAssetGenerator(project)
+            registerDeviceMatrixGate(project, goldenAssets)
 
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
 
@@ -108,6 +110,38 @@ class AppGatesPlugin : Plugin<Project> {
             generatorClasspath.from(generator)
             mainClass.set("com.neoterux.easyfact.testing.GoldenAssetGenerator")
             outputDir.set(project.layout.buildDirectory.dir("generated/goldenSigningAssets"))
+        }
+    }
+
+    /**
+     * `verifyDeviceMatrix` runs the golden-byte test on every device of the managed-device group
+     * (`app/build.gradle.kts`, `android.testOptions.managedDevices.groups`) and then checks the result
+     * files. It is deliberately not attached to `check`: three emulators and their system images are
+     * too heavy for the per-commit loop, and the owner decided this is a second named exception to
+     * "every gate attaches to `check`" next to `verifyRelease` (docs/build-invariants.md).
+     *
+     * The verdict is taken by [VerifyDeviceMatrixResultsTask], not from the exit code of the emulator
+     * task: a matrix that executed nothing, or a device that never ran, must fail.
+     */
+    private fun registerDeviceMatrixGate(project: Project, goldenAssets: TaskProvider<GenerateGoldenSigningAssetsTask>) {
+        val extension = project.extensions.getByType(ApplicationExtension::class.java)
+        val groupTask = "${DEVICE_MATRIX_GROUP}GroupDebugAndroidTest"
+        val results = project.tasks.register("verifyDeviceMatrixResults", VerifyDeviceMatrixResultsTask::class.java) {
+            group = "verification"
+            description = "Fails unless every device of the matrix executed tests and none failed."
+            resultsDir.set(project.layout.buildDirectory.dir("outputs/androidTest-results/managedDevice/debug"))
+            // Read lazily: the managed-device DSL is evaluated after this plugin is applied.
+            expectedDevices.set(
+                project.provider {
+                    extension.testOptions.managedDevices.groups.getByName(DEVICE_MATRIX_GROUP).targetDevices.map { it.name }
+                },
+            )
+            dependsOn(groupTask)
+        }
+        project.tasks.register("verifyDeviceMatrix") {
+            group = "verification"
+            description = "Proves certificate loading and signing give the JVM's bytes on API 31, 34 and the latest image."
+            dependsOn(goldenAssets, results)
         }
     }
 
@@ -244,6 +278,9 @@ class AppGatesPlugin : Plugin<Project> {
     private companion object {
         /** The key of the instrumented-test component in `ApplicationVariant.deviceTests`. */
         const val DEVICE_TEST_COMPONENT = "AndroidTest"
+
+        /** The managed-device group `app/build.gradle.kts` declares; its devices are the matrix. */
+        const val DEVICE_MATRIX_GROUP = "matrix"
         const val BASELINE_FILE_NAME = "size-baseline.properties"
         const val SIZE_TOLERANCE_BYTES = 1024L
 
