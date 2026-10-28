@@ -18,12 +18,18 @@
 package com.neoterux.easyfact.invoicing.factura
 
 import com.neoterux.easyfact.invoicing.result.Outcome
+import com.neoterux.easyfact.invoicing.verify.SchemaModel
 import com.neoterux.easyfact.invoicing.verify.XsdGate
+import java.io.ByteArrayInputStream
 import java.math.BigDecimal
+import javax.xml.XMLConstants
+import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.w3c.dom.Element
+import org.w3c.dom.Node
 
 /**
  * Cases for the elements of the vendored schema that the original fixtures do not carry.
@@ -194,5 +200,52 @@ class FacturaSchemaCoverageTest {
         val xml = rootXml(SampleFactura.fullyPopulated())
         assertTrue(xml.contains("<compensaciones><compensacion>"))
         assertFalse(xml.contains("compensacionReembolso"))
+    }
+
+    // --- every schema path ------------------------------------------------------------------------
+
+    /** Parses [octets] with the same hardening as [XsdGate]. */
+    private fun parse(octets: ByteArray): Element = DocumentBuilderFactory.newInstance().apply {
+        isNamespaceAware = true
+        isXIncludeAware = false
+        isExpandEntityReferences = false
+        setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        setFeature("http://xml.org/sax/features/external-general-entities", false)
+        setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "")
+        setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "")
+    }.newDocumentBuilder().parse(ByteArrayInputStream(octets)).documentElement
+
+    /** Every element and attribute path under [element], in [SchemaModel]'s form. */
+    private fun pathsOf(element: Element, parentPath: String?, into: MutableSet<String>) {
+        val path = if (parentPath == null) element.localName else "$parentPath/${element.localName}"
+        into += path
+        val attributes = element.attributes
+        for (i in 0 until attributes.length) {
+            val attribute = attributes.item(i)
+            if (attribute.namespaceURI == XMLConstants.XMLNS_ATTRIBUTE_NS_URI) continue
+            into += "$path/@${attribute.localName}"
+        }
+        var child = element.firstChild
+        while (child != null) {
+            if (child.nodeType == Node.ELEMENT_NODE) pathsOf(child as Element, path, into)
+            child = child.nextSibling
+        }
+    }
+
+    @Test
+    fun theEveryElementDocumentPassesTheGateAndCoversTheWholeSchema() {
+        val octets = SampleFactura.write(SampleFactura.everyElement()).octets()
+        XsdGate.validate(octets)
+
+        val written = linkedSetOf<String>()
+        pathsOf(parse(octets), null, written)
+        val schema = SchemaModel.factura().keys
+
+        val missing = schema - written
+        val extra = written - schema
+        assertTrue("schema paths missing from the document: ${missing.sorted()}", missing.isEmpty())
+        assertTrue("document paths missing from the schema model: ${extra.sorted()}", extra.isEmpty())
     }
 }

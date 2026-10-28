@@ -176,6 +176,29 @@ object SampleFactura {
         )
     }
 
+    /**
+     * [fullyPopulated] plus the four optional elements it leaves out: `maquinaFiscal`,
+     * `unidadMedida`, the `totalImpuesto` `tarifa` and `compensacionesReembolso`. It carries every
+     * element and attribute of the vendored schema.
+     *
+     * [fullyPopulated] is left as it is because its bytes are pinned.
+     */
+    fun everyElement(): Factura {
+        val f = fullyPopulated()
+        return f.copy(
+            fiscalMachine = FiscalMachine(brand = "Test Marca", model = "Test Modelo", serial = "TEST-SERIE-0001"),
+            lines = listOf(f.lines.single().copy(unitOfMeasure = "unidad")),
+            invoiceInfo = f.invoiceInfo.copy(
+                taxTotals = listOf(f.invoiceInfo.taxTotals.single().copy(rate = BigDecimal("0"))),
+            ),
+            refunds = listOf(
+                f.refunds.single().copy(
+                    compensations = listOf(Compensation("1", BigDecimal("0"), BigDecimal("0"))),
+                ),
+            ),
+        )
+    }
+
     fun document(): CanonicalDocument = write(factura())
 
     /** Unwraps the writer's outcome; the message never carries a document value. */

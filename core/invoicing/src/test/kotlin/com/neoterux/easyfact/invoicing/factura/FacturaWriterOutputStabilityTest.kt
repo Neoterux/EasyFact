@@ -23,7 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Pins the octets [FacturaWriter] emits for three synthetic fixtures, as lowercase-hex SHA-256.
+ * Pins the octets [FacturaWriter] emits for four synthetic fixtures, as lowercase-hex SHA-256.
  *
  * These octets are the bytes that get signed and transmitted. The constants describe the writer's
  * output for valid input: a deliberate output change updates them in the same change and states why;
@@ -32,6 +32,11 @@ import org.junit.Test
  * The constants were computed while `FacturaWriter.kt` was byte-identical to the copy snapshotted
  * before the facet-parity gap plans began, so a later plan that keeps valid output unchanged keeps
  * this test green without touching it.
+ *
+ * The fourth constant pins [SampleFactura.everyElement], the fixture carrying the four elements the
+ * writer gained after the first three were computed (`maquinaFiscal`, `unidadMedida`, the
+ * `totalImpuesto` `tarifa` and `compensacionesReembolso`), so later writer changes keep their bytes
+ * stable too.
  */
 class FacturaWriterOutputStabilityTest {
 
@@ -54,9 +59,16 @@ class FacturaWriterOutputStabilityTest {
         assertEquals(PROBE_DOCUMENT_SHA256, sha256Hex(ProbeDocumentFixture.document().octets()))
     }
 
+    @Test
+    fun theEveryElementSampleDocumentIsByteStable() {
+        val octets = SampleFactura.write(SampleFactura.everyElement()).octets()
+        assertEquals(EVERY_ELEMENT_SHA256, sha256Hex(octets))
+    }
+
     private companion object {
         const val MINIMAL_SAMPLE_SHA256 = "04bd91c1f7e93a536896b42d32030b2199d1d1b1e6cc22589ce61ece48f224b3"
         const val FULLY_POPULATED_SHA256 = "3c8733b6743430d17998bcbfe484cb88068f9d0654fb997eb41f88fb6cfa70a4"
         const val PROBE_DOCUMENT_SHA256 = "e8c74a4057b3f970e7b9ca483c7ff10e326ee2b242d7e550f3b2819a6525c65d"
+        const val EVERY_ELEMENT_SHA256 = "c8a618e5a76b47ef62af97cbdc451fbfb75d74a506604d2e6b3f7bd002c57bee"
     }
 }
