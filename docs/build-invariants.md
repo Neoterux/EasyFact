@@ -50,7 +50,7 @@ run is also the first measurement of the release-size tolerance on a machine oth
 than the one that recorded the baseline (section 6).
 
 This page was last re-read, section by section, against the `build-logic`
-sources whose content digest is `ea27286a2c5c`. To check whether it is still
+sources whose content digest is `e423db445cb6`. To check whether it is still
 current, run:
 
 ```bash
@@ -539,8 +539,11 @@ passes on an API 31, an API 34 and an API 37 emulator: each loads a freshly mint
 `KeyStore.getInstance("PKCS12")`, signs a fixed document with `XadesBesSigner` using a fixed
 `IdSource` and signing time, and produces exactly the bytes the JVM produced for the same inputs.
 It also compares the platform's issuer-name renderings with the JVM's, and requires that a wrong
-password is refused with an `IOException`. The cases come from a manifest the generator writes, not
-from a list in the test.
+password is refused for the right reason: a rejection case first opens its store with a control
+password, so a refusal afterwards can only be the password (`IOException`, logged as
+`outcome=password-refused-after-control-opened`). Below the level a store's encoding opens from, the
+test asserts the encoding refusal instead (`outcome=encoding-refused-below-api-N`). The cases come
+from a manifest the generator writes, not from a list in the test.
 
 **Command.** `./gradlew :app:verifyDeviceMatrix` (not reached by `check`, see "How the gates run").
 The first run downloads three arm64 system images, several gigabytes each.
@@ -548,7 +551,7 @@ The first run downloads three arm64 system images, several gigabytes each.
 **Where the logic lives.** `app/build.gradle.kts` (`android.testOptions.managedDevices`: devices
 `api31`, `api34`, `api37`, group `matrix`), `AppGatesPlugin.kt` (the aggregate and the asset wiring),
 `GenerateGoldenSigningAssetsTask.kt` and `GoldenAssetCheck.kt` (asset generation and its completeness
-check), `VerifyDeviceMatrixResultsTask.kt` and `DeviceMatrixResults.kt` (the verdict), and
+check, which also refuses a rejection case that could pass vacuously, see below), `VerifyDeviceMatrixResultsTask.kt` and `DeviceMatrixResults.kt` (the verdict), and
 `core/testing/.../GoldenAssetGenerator.kt` (the cases). Failing fixtures: `DeviceMatrixResultsTest.kt`
 and `GoldenAssetCheckTest.kt`.
 
@@ -570,10 +573,23 @@ matrix run; if a first run fails this way, install the missing image first or ru
 **Per-API-level expectation: the AES PKCS#12 on API 31.** A case may declare the lowest API level
 from which it is expected to open (`opensFromApi`, set in the case definition in
 `GoldenAssetGenerator.kt` and written to the manifest; `GoldenAssetCheck` requires it for every
-signing case). Below that level the test does not skip: it asserts the refusal, an `IOException`
-whose cause chain names the MAC or key failure, so a platform that starts opening the file fails the
-test. At or above it the case must open and produce the JVM's bytes. The only case with a non-zero
-threshold is `p12-modern-aes`, with threshold 34.
+signing case and every rejection case). Below that level the test does not skip: it asserts the
+refusal, an `IOException` whose cause chain names the MAC or key failure, so a platform that starts
+opening the file fails the test. At or above it the case must open and produce the JVM's bytes. The
+cases with a non-zero threshold are `p12-modern-aes` and `wrong-password-modern-aes`, both 34.
+
+**Rejection cases and the control password.** A wrong password and an unreadable encoding both
+surface as an `IOException`, so a rejection test that only expects an `IOException` can pass without
+ever testing the password. Every rejection case therefore carries a control password (`controlPassword`
+in the manifest) and the device opens the store with it before trying the wrong one; if the control
+open fails, the test fails and names the API level and the case. `wrong-password` uses the legacy
+encoding, which opens on API 31, 34 and 37, so even on the minimum level its refusal can only be the
+password. `wrong-password-modern-aes` keeps the AES encoding covered from API 34. `GoldenAssetCheck`
+fails the build, in `generateGoldenSigningAssets`, when a rejection case has no control password, no
+encoding or no valid threshold (`MISSING`); when it claims to open from a lower level than a signing
+case of the same encoding is measured to open from (`VACUOUS`); when no signing case measures its
+encoding (`UNMEASURED`); or when no rejection case opens from API 0, so that the minimum level would
+run none (`MISSING rejection case with opensFromApi 0`).
 
 **Standing result (2026-10-27, Apple Silicon host, `aosp` images).** On API 31 the
 PKCS#12 keystore cannot open the AES-256 / HmacSHA256 encoding that a current JDK or OpenSSL 3
@@ -581,6 +597,14 @@ writes: `load` throws `IOException: error constructing MAC: InvalidKeyException:
 provider supports this key: ...PKCS12Key`. That refusal is the expected, asserted outcome there. API 34
 and 37 open it and produce the JVM's bytes. The legacy encoding opens on all three levels, and every
 case that opens produced the JVM's bytes.
+
+**Result (2026-10-28, `aosp` images, no image-source override).** One `:app:verifyDeviceMatrix` run on
+three arm64 emulators, on results newer than a start marker taken after the results directory was
+cleared. API 31, 34 and 37 each ran 8 instrumented tests (the seven golden cases and one
+smoke test) with 0 failures, 0 errors and 0 skipped, and the golden-byte suite line reported 7 tests
+with 0 failures, 0 errors and 0 skipped on each. The rejection cases logged: API 31
+`wrong-password` `password-refused-after-control-opened` and `wrong-password-modern-aes`
+`encoding-refused-below-api-34`; API 34 and 37 `password-refused-after-control-opened` for both.
 
 **Assumption for API 32 and 33.** They are not measured. The threshold is 34, the lowest level
 measured to open the file, so 32 and 33 are treated as refusing like 31. If an emulator on either
@@ -592,7 +616,7 @@ AES encoding, and an API 31 device cannot open it, whatever the password. Handli
 device cannot open (rejecting it with a plain-language message, or re-encoding it) belongs to the
 certificate import, not to this matrix, which only records and asserts the platform's behaviour.
 
-**What it cannot see.** It proves byte equality for six synthetic certificates on three emulators on an
+**What it cannot see.** It proves byte equality and password refusal for seven synthetic certificates (five signing cases and two rejection cases) on three emulators on an
 Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing
 about a real certificate authority's files, a hardware-backed key, a physical device's vendor
 provider, an x86 emulator, or any API level between and beyond the three. The keys are derived from
