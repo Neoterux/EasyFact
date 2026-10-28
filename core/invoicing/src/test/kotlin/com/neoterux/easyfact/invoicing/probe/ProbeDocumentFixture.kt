@@ -96,7 +96,7 @@ object ProbeDocumentFixture {
                 legalName = values.issuerLegalName,
                 tradeName = "Test Trade Name",
                 ruc = values.issuerRuc,
-                accessKey = accessKey(values).digits,
+                accessKey = accessKey(values),
                 documentTypeCode = "01",
                 establishmentCode = values.establishmentCode,
                 emissionPointCode = values.emissionPointCode,

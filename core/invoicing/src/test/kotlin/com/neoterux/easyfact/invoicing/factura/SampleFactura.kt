@@ -31,7 +31,7 @@ import java.time.LocalDate
 object SampleFactura {
 
     /** A valid 49-digit key, generated rather than written down so that no identifier-shaped literal sits in the source. */
-    private val accessKey: String = (
+    private val accessKey: AccessKey = (
         AccessKey.of(
             issueDate = LocalDate.of(2026, 10, 27),
             documentTypeCode = "01",
@@ -43,7 +43,7 @@ object SampleFactura {
             numericCode = "12345678",
             emissionTypeCode = "1",
         ) as Outcome.Ok
-        ).value.digits
+        ).value
 
     fun factura(): Factura = Factura(
         taxInfo = TaxInfo(
@@ -165,7 +165,7 @@ object SampleFactura {
                     emissionPointCode = "003",
                     sequential = "000000001",
                     issueDate = LocalDate.of(2026, 10, 27),
-                    authorizationNumber = accessKey,
+                    authorizationNumber = accessKey.digits,
                     taxes = listOf(
                         RefundTax("2", "0", BigDecimal("0"), BigDecimal("1"), BigDecimal("0")),
                     ),

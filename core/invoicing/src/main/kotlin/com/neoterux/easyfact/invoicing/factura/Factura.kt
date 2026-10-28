@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
+import com.neoterux.easyfact.invoicing.accesskey.AccessKey
 import java.math.BigDecimal
 import java.time.LocalDate
 
@@ -69,8 +70,14 @@ data class TaxInfo(
     /** `nombreComercial`; omitted when `null`. */
     val tradeName: String?,
     val ruc: String,
-    /** `claveAcceso`: the 49-digit key. */
-    val accessKey: String,
+    /**
+     * `claveAcceso`. A free string cannot be given here: the key can only come from
+     * [AccessKey.of], so it is always 49 ASCII digits with a valid modulus-11 check digit. The writer
+     * also refuses a key whose embedded date, document type, RUC, environment, series or sequential
+     * disagrees with the fields of this block and of `infoFactura`, which is what stops a key cut for
+     * another document being signed into this one.
+     */
+    val accessKey: AccessKey,
     /** `codDoc` */
     val documentTypeCode: String,
     /** `estab` */

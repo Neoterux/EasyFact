@@ -504,7 +504,7 @@ object FacturaWriter {
         out.text(RAZON_SOCIAL, info.legalName)
         out.optional(NOMBRE_COMERCIAL, info.tradeName)
         out.text(RUC, info.ruc)
-        out.text(CLAVE_ACCESO, info.accessKey)
+        out.text(CLAVE_ACCESO, info.accessKey.digits)
         out.code(COD_DOC, info.documentTypeCode)
         out.text(ESTAB, info.establishmentCode)
         out.text(PTO_EMI, info.emissionPointCode)

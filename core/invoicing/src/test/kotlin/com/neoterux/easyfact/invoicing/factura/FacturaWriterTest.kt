@@ -555,13 +555,10 @@ class FacturaWriterTest {
     }
 
     @Test
-    fun aFortyEightDigitAccessKeyIsInvalidFormat() {
-        val base = SampleFactura.factura()
-        val key = "1".repeat(48)
-        assertEquals(
-            FacturaError.InvalidFormat("claveAcceso"),
-            error(base.copy(taxInfo = base.taxInfo.copy(accessKey = key))),
-        )
+    fun theClaveAccesoElementCarriesTheDigitsOfTheAccessKey() {
+        val digits = SampleFactura.factura().taxInfo.accessKey.digits
+        assertEquals(49, digits.length)
+        assertTrue(rootXml().contains("<claveAcceso>$digits</claveAcceso>"))
     }
 
     @Test
