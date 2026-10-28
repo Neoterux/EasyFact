@@ -107,11 +107,16 @@ object FacturaWriter {
 
     private fun register(facet: Facet): Facet = facet.also { registry += it }
 
-    private fun container(path: String): Facet = register(Facet(path, Kind.CONTAINER))
+    /** A container; [maxOccurs] is the schema's repeat cap where it is greater than one. */
+    private fun container(path: String, maxOccurs: Int? = null): Facet =
+        register(Facet(path, Kind.CONTAINER, maxOccurs = maxOccurs))
 
-    /** A text facet whose schema type states [maxLength]. */
-    private fun bounded(path: String, maxLength: Int): Facet =
-        register(Facet(path, Kind.TEXT, maxLength = maxLength))
+    /**
+     * A text facet whose schema type states [maxLength]. [minLength] is the schema's, which is 1
+     * for nearly every such type; `null` says the schema states none.
+     */
+    private fun bounded(path: String, maxLength: Int, minLength: Int? = 1, maxOccurs: Int? = null): Facet =
+        register(Facet(path, Kind.TEXT, maxLength = maxLength, minLength = minLength, maxOccurs = maxOccurs))
 
     /** A text facet whose schema type states no `maxLength`; the writer keeps its own bound. */
     private fun guarded(path: String, guardLength: Int): Facet =
@@ -164,7 +169,7 @@ object FacturaWriter {
     private val PTO_EMI = guarded("$TAX_INFO/ptoEmi", 3)
     private val SECUENCIAL = guarded("$TAX_INFO/secuencial", 9)
     private val DIR_MATRIZ = bounded("$TAX_INFO/dirMatriz", 300)
-    private val AGENTE_RETENCION = bounded("$TAX_INFO/agenteRetencion", 8)
+    private val AGENTE_RETENCION = bounded("$TAX_INFO/agenteRetencion", 8, minLength = null)
     private val CONTRIBUYENTE_RIMPE = guarded("$TAX_INFO/contribuyenteRimpe", TEXT_MAX)
 
     // --- infoFactura ---------------------------------------------------------------------------
@@ -172,7 +177,7 @@ object FacturaWriter {
     private val INFO_FACTURA = container(INVOICE_INFO)
     private val FECHA_EMISION = guarded("$INVOICE_INFO/fechaEmision", 10)
     private val DIR_ESTABLECIMIENTO = bounded("$INVOICE_INFO/dirEstablecimiento", 300)
-    private val CONTRIBUYENTE_ESPECIAL = bounded("$INVOICE_INFO/contribuyenteEspecial", 13)
+    private val CONTRIBUYENTE_ESPECIAL = bounded("$INVOICE_INFO/contribuyenteEspecial", 13, minLength = 3)
     private val OBLIGADO_CONTABILIDAD = guarded("$INVOICE_INFO/obligadoContabilidad", 2)
     private val COMERCIO_EXTERIOR = guarded("$INVOICE_INFO/comercioExterior", 20)
     private val INCO_TERM_FACTURA = bounded("$INVOICE_INFO/incoTermFactura", 10)
@@ -276,7 +281,7 @@ object FacturaWriter {
     private val DESCUENTO = decimal("$LINE/descuento")
     private val PRECIO_TOTAL_SIN_IMPUESTO = decimal("$LINE/precioTotalSinImpuesto")
     private val DETALLES_ADICIONALES = container("$LINE/detallesAdicionales")
-    private val DET_ADICIONAL = container(LINE_DETAIL)
+    private val DET_ADICIONAL = container(LINE_DETAIL, maxOccurs = 3)
     private val DET_ADICIONAL_NOMBRE = bounded("$LINE_DETAIL/@nombre", 300)
     private val DET_ADICIONAL_VALOR = bounded("$LINE_DETAIL/@valor", 300)
     private val IMPUESTOS = container("$LINE/impuestos")
@@ -300,7 +305,7 @@ object FacturaWriter {
     private val PTO_EMI_DOC_REEMBOLSO = guarded("$REFUND/ptoEmiDocReembolso", 3)
     private val SECUENCIAL_DOC_REEMBOLSO = guarded("$REFUND/secuencialDocReembolso", 9)
     private val FECHA_EMISION_DOC_REEMBOLSO = guarded("$REFUND/fechaEmisionDocReembolso", 10)
-    private val NUMERO_AUTORIZACION_DOC_REEMB = bounded("$REFUND/numeroautorizacionDocReemb", 49)
+    private val NUMERO_AUTORIZACION_DOC_REEMB = bounded("$REFUND/numeroautorizacionDocReemb", 49, minLength = 10)
     private val DETALLE_IMPUESTOS = container("$REFUND/detalleImpuestos")
     private val DETALLE_IMPUESTO = container(REFUND_TAX)
     private val DETALLE_IMPUESTO_CODIGO = guarded("$REFUND_TAX/codigo", 4)
@@ -327,7 +332,7 @@ object FacturaWriter {
     private val MODELO = bounded("$FISCAL_MACHINE/modelo", 30)
     private val SERIE = bounded("$FISCAL_MACHINE/serie", 30)
     private val INFO_ADICIONAL = container("$ROOT/infoAdicional")
-    private val CAMPO_ADICIONAL = bounded(ADDITIONAL_FIELD, 300)
+    private val CAMPO_ADICIONAL = bounded(ADDITIONAL_FIELD, 300, maxOccurs = 15)
     private val CAMPO_ADICIONAL_NOMBRE = bounded("$ADDITIONAL_FIELD/@nombre", 300)
 
     /**
@@ -336,7 +341,8 @@ object FacturaWriter {
      */
     internal val FACETS: List<Facet> = registry.toList()
 
-    private const val MAX_ADDITIONAL_FIELDS = 15
+    /** The repeat cap the schema states for [facet]; every facet asked here carries one. */
+    private fun cap(facet: Facet): Int = checkNotNull(facet.maxOccurs) { "${facet.path} has no occurrence cap" }
 
     /**
      * The catalogues small and stable enough to check here.
@@ -519,6 +525,11 @@ object FacturaWriter {
 
     private fun writeLineDetails(out: Emission, details: List<LineDetailField>) {
         if (details.isEmpty()) return
+        val cap = cap(DET_ADICIONAL)
+        if (details.size > cap) {
+            out.fail(FacturaError.TooManyEntries(DETALLES_ADICIONALES.name, cap, details.size))
+            return
+        }
         out.open(DETALLES_ADICIONALES)
         for (detail in details) {
             out.openWithAttributes(
@@ -612,8 +623,9 @@ object FacturaWriter {
 
     private fun writeAdditionalInfo(out: Emission, fields: List<AdditionalField>) {
         if (fields.isEmpty()) return
-        if (fields.size > MAX_ADDITIONAL_FIELDS) {
-            out.fail(FacturaError.TooManyEntries(INFO_ADICIONAL.name, MAX_ADDITIONAL_FIELDS, fields.size))
+        val cap = cap(CAMPO_ADICIONAL)
+        if (fields.size > cap) {
+            out.fail(FacturaError.TooManyEntries(INFO_ADICIONAL.name, cap, fields.size))
             return
         }
         out.open(INFO_ADICIONAL)
@@ -726,9 +738,16 @@ object FacturaWriter {
                 fail(FacturaError.BlankField(element.name))
                 return false
             }
+            // The schema counts characters, and a supplementary character is two UTF-16 units.
+            val length = value.codePointCount(0, value.length)
             val bound = element.maxLength ?: element.guardLength
-            if (bound != null && value.length > bound) {
-                fail(FacturaError.FieldTooLong(element.name, bound, value.length))
+            if (bound != null && length > bound) {
+                fail(FacturaError.FieldTooLong(element.name, bound, length))
+                return false
+            }
+            val minimum = element.minLength
+            if (minimum != null && length < minimum) {
+                fail(FacturaError.FieldTooShort(element.name, minimum, length))
                 return false
             }
             if (!CanonicalEmitter.isLegalXmlText(value)) {
