@@ -167,7 +167,7 @@ class FacturaDecimalFacetTest {
         check(grandTotal, "0", written("0.00"))
         check(grandTotal, "999999999999.99", written("999999999999.99"))
         check(grandTotal, "99999999999999", written("99999999999999.00"))
-        check(grandTotal, "9999999999999.99", refused("totalDigits", "14"))
+        check(grandTotal, "9".repeat(13) + ".99", refused("totalDigits", "14"))
         check(grandTotal, "100000000000000", refused("totalDigits", "14"))
         check(grandTotal, "-0.01", refused("minInclusive", "0"))
     }
@@ -200,7 +200,7 @@ class FacturaDecimalFacetTest {
     @Test
     fun aQuantityIsEnforcedAtEighteenDigitsWithSixDecimals() {
         check(quantity, "999999999999.999999", written("999999999999.999999"))
-        check(quantity, "9999999999999.999999", refused("totalDigits", "18"))
+        check(quantity, "9".repeat(13) + ".999999", refused("totalDigits", "18"))
         check(quantity, "1.0000005", written("1.000001"))
     }
 
