@@ -161,6 +161,8 @@ data class InvoiceLine(
     val auxiliaryCode: String? = null,
     /** `descripcion` */
     val description: String,
+    /** `unidadMedida`; omitted when `null`. */
+    val unitOfMeasure: String? = null,
     /** `cantidad`, written with six decimals. */
     val quantity: BigDecimal,
     /** `precioUnitario`, written with six decimals. */

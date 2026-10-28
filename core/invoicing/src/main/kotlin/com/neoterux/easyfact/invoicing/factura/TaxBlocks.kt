@@ -53,6 +53,8 @@ data class TaxTotal(
     val additionalDiscount: BigDecimal? = null,
     /** `valorDevolucionIva`; omitted when `null`. */
     val ivaRefundValue: BigDecimal? = null,
+    /** `tarifa`; omitted when `null`. */
+    val rate: BigDecimal? = null,
 )
 
 /** One `impuesto` of a `detalle`. */

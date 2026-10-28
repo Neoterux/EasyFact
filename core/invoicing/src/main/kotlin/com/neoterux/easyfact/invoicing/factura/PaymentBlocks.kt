@@ -68,6 +68,8 @@ data class Refund(
     val authorizationNumber: String,
     /** `detalleImpuestos` / `detalleImpuesto` */
     val taxes: List<RefundTax>,
+    /** `compensacionesReembolso`; the element is absent when this is empty. */
+    val compensations: List<Compensation> = emptyList(),
 )
 
 /** One `detalleImpuesto` of a [Refund]. */

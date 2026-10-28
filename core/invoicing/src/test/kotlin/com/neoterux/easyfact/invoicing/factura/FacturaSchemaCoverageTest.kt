@@ -19,6 +19,7 @@ package com.neoterux.easyfact.invoicing.factura
 
 import com.neoterux.easyfact.invoicing.result.Outcome
 import com.neoterux.easyfact.invoicing.verify.XsdGate
+import java.math.BigDecimal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -43,10 +44,14 @@ class FacturaSchemaCoverageTest {
         XsdGate.validate(SampleFactura.write(factura).octets())
     }
 
+    /** Each fragment must occur after the end of the one before it, so a repeated name cannot match early. */
     private fun assertInOrder(xml: String, vararg fragments: String) {
-        val positions = fragments.map { xml.indexOf(it) }
-        assertTrue("every fragment must be present: ${fragments.toList()}", positions.all { it >= 0 })
-        assertEquals("fragments out of order: ${fragments.toList()}", positions.sorted(), positions)
+        var from = 0
+        for (fragment in fragments) {
+            val at = xml.indexOf(fragment, from)
+            assertTrue("$fragment not found after offset $from; expected order ${fragments.toList()}", at >= 0)
+            from = at + fragment.length
+        }
     }
 
     private fun assertNoElement(xml: String, name: String) {
@@ -83,5 +88,111 @@ class FacturaSchemaCoverageTest {
     fun aThirtyOneCharacterBrandIsRefusedWithTheSchemaLimit() {
         val factura = SampleFactura.fullyPopulated().copy(fiscalMachine = machine.copy(brand = "x".repeat(31)))
         assertEquals(FacturaError.FieldTooLong("marca", 30, 31), error(factura))
+    }
+
+    // --- unidadMedida -----------------------------------------------------------------------------
+
+    private fun withUnit(unit: String?): Factura {
+        val f = SampleFactura.fullyPopulated()
+        return f.copy(lines = listOf(f.lines.single().copy(unitOfMeasure = unit)))
+    }
+
+    @Test
+    fun aUnitOfMeasureIsWrittenBetweenTheDescriptionAndTheQuantityAndPassesTheGate() {
+        val factura = withUnit("unidad")
+        assertSchemaValid(factura)
+        assertInOrder(
+            rootXml(factura),
+            "</descripcion>",
+            "<unidadMedida>unidad</unidadMedida>",
+            "<cantidad>",
+        )
+    }
+
+    @Test
+    fun withoutAUnitOfMeasureNoUnidadMedidaAppears() {
+        assertNoElement(rootXml(withUnit(null)), "unidadMedida")
+    }
+
+    @Test
+    fun aFiftyOneCharacterUnitOfMeasureIsRefusedWithTheSchemaLimit() {
+        assertEquals(FacturaError.FieldTooLong("unidadMedida", 50, 51), error(withUnit("x".repeat(51))))
+    }
+
+    // --- totalImpuesto / tarifa -------------------------------------------------------------------
+
+    private fun withTaxRate(rate: BigDecimal?): Factura {
+        val f = SampleFactura.fullyPopulated()
+        return f.copy(
+            invoiceInfo = f.invoiceInfo.copy(taxTotals = listOf(f.invoiceInfo.taxTotals.single().copy(rate = rate))),
+        )
+    }
+
+    /** The text of the first `totalImpuesto` element of [xml]. */
+    private fun taxTotalOf(xml: String): String =
+        xml.substringAfter("<totalImpuesto>").substringBefore("</totalImpuesto>")
+
+    @Test
+    fun aTaxTotalRateIsWrittenBetweenTheBaseAndTheValueAndPassesTheGate() {
+        val factura = withTaxRate(BigDecimal("12"))
+        assertSchemaValid(factura)
+        assertInOrder(
+            taxTotalOf(rootXml(factura)),
+            "<baseImponible>",
+            "<tarifa>12.00</tarifa>",
+            "<valor>",
+        )
+    }
+
+    @Test
+    fun aTaxTotalRateIsRoundedHalfUpToTwoDecimals() {
+        assertTrue(taxTotalOf(rootXml(withTaxRate(BigDecimal("1.005")))).contains("<tarifa>1.01</tarifa>"))
+    }
+
+    @Test
+    fun withoutATaxTotalRateNoTarifaAppearsInTheTotal() {
+        assertNoElement(taxTotalOf(rootXml(withTaxRate(null))), "tarifa")
+    }
+
+    // --- reembolsoDetalle / compensacionesReembolso -----------------------------------------------
+
+    private fun withRefundCompensations(compensations: List<Compensation>): Factura {
+        val f = SampleFactura.fullyPopulated()
+        return f.copy(refunds = listOf(f.refunds.single().copy(compensations = compensations)))
+    }
+
+    /** The text of the first `reembolsoDetalle` element of [xml]. */
+    private fun refundOf(xml: String): String =
+        xml.substringAfter("<reembolsoDetalle>").substringBefore("</reembolsoDetalle>")
+
+    @Test
+    fun refundCompensationsAreTheLastChildOfTheRefundAndPassTheGate() {
+        val factura = withRefundCompensations(listOf(Compensation("1", BigDecimal("0"), BigDecimal("0"))))
+        assertSchemaValid(factura)
+        val refund = refundOf(rootXml(factura))
+        assertInOrder(
+            refund,
+            "</detalleImpuestos>",
+            "<compensacionesReembolso>",
+            "<compensacionReembolso>",
+            "<codigo>1</codigo>",
+            "<tarifa>0.00</tarifa>",
+            "<valor>0.00</valor>",
+            "</compensacionReembolso>",
+            "</compensacionesReembolso>",
+        )
+        assertTrue(refund.endsWith("</compensacionesReembolso>"))
+    }
+
+    @Test
+    fun withoutRefundCompensationsNoCompensacionesReembolsoAppears() {
+        assertNoElement(rootXml(withRefundCompensations(emptyList())), "compensacionesReembolso")
+    }
+
+    @Test
+    fun theDocumentLevelCompensationsBlockStillUsesItsOwnElementNames() {
+        val xml = rootXml(SampleFactura.fullyPopulated())
+        assertTrue(xml.contains("<compensaciones><compensacion>"))
+        assertFalse(xml.contains("compensacionReembolso"))
     }
 }
