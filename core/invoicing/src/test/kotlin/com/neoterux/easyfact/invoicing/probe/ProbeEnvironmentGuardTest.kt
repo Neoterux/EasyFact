@@ -446,6 +446,38 @@ class ProbeEnvironmentGuardTest {
         }
     }
 
+    /**
+     * The committed structure-only envelopes are modelled from the specification, not captured: no
+     * document has been submitted from this project. This pins two things about them: they carry no
+     * value at all, and the reader finds exactly one state slot and one message slot in each, so its
+     * paths line up with the modelled shape.
+     */
+    @Test
+    fun theCommittedStructureOnlyEnvelopesCarryNoValuesAndMatchTheReader() {
+        val expected = mapOf(
+            "structure-only-recepcion.xml" to listOf("RespuestaRecepcionComprobante", "estado", "claveAcceso", "identificador", "informacionAdicional", "tipo"),
+            "structure-only-autorizacion.xml" to listOf(
+                "RespuestaAutorizacionComprobante", "claveAccesoConsultada", "numeroComprobantes", "autorizacion",
+                "estado", "numeroAutorizacion", "fechaAutorizacion", "ambiente", "comprobante", "identificador", "tipo",
+            ),
+        )
+        for ((name, elements) in expected) {
+            val text = ProbeEnvironmentGuardTest::class.java.getResourceAsStream("/fixtures/sri/$name")
+                .let { assertNotNull(name, it); it!! }
+                .use { String(it.readBytes(), Charsets.UTF_8) }
+            val document = ProbeEnvironmentGuard.parseHardened(text.toByteArray(Charsets.UTF_8))
+            assertNoCharacterData(document.documentElement)
+            for (element in elements) {
+                assertEquals("$name: $element", 1, document.getElementsByTagNameNS("*", element).length)
+            }
+            val reading = ThrowawaySoap.readState(text)
+            assertEquals(name, listOf(""), reading.states)
+            assertEquals(name, 1, reading.messages.size)
+            assertEquals(name, ThrowawaySoap.Message(code = "", text = "", type = "", additionalInformation = ""), reading.messages.single())
+            assertNull(name, reading.fault)
+        }
+    }
+
     private fun assertNoCharacterData(node: Node) {
         var next = node.firstChild
         while (next != null) {

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Structure-only authorization answer (autorizacionComprobante). Every element value is stripped
+  on purpose: element names, nesting and attribute names survive, no character data does.
+
+  This file is MODELLED, not captured. No document has been submitted to the SRI from this
+  project; the real test-environment run is left to the repository owner. The shape comes from
+  the published specification as summarised in docs/sri-electronic-invoicing.md section 7 and
+  from public SRI samples. The SOAP wrapper names (autorizacionComprobanteResponse,
+  RespuestaAutorizacionComprobante) have not been checked against the service WSDL. The probe's
+  reader matches on local names, so a wrapper-name difference does not change what it reads.
+
+  The autorizacion element is the customer-facing deliverable: it wraps the signed comprobante
+  (as character data in the real answer) together with the authorization number, date and
+  state. RIDE rendering fills this shape with synthetic values rather than receiving a
+  populated document. One query can return several autorizacion elements; one is shown.
+-->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns2:autorizacionComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.autorizacion">
+      <RespuestaAutorizacionComprobante>
+        <claveAccesoConsultada/>
+        <numeroComprobantes/>
+        <autorizaciones>
+          <autorizacion>
+            <estado/>
+            <numeroAutorizacion/>
+            <fechaAutorizacion/>
+            <ambiente/>
+            <comprobante/>
+            <mensajes>
+              <mensaje>
+                <identificador/>
+                <mensaje/>
+                <informacionAdicional/>
+                <tipo/>
+              </mensaje>
+            </mensajes>
+          </autorizacion>
+        </autorizaciones>
+      </RespuestaAutorizacionComprobante>
+    </ns2:autorizacionComprobanteResponse>
+  </soap:Body>
+</soap:Envelope>

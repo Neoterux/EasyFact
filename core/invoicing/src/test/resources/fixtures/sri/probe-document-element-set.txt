@@ -10,10 +10,11 @@
 #    regenerated in the same change. Plan 02-05, Task 2, which widens FacturaWriter to full 1.1.0
 #    coverage, is the single owner of that regeneration; no other plan edits this file.
 #
-# 3. It is not the historical record. What the one real test-environment submission carried is
-#    frozen in docs/sri-electronic-invoicing.md, under the exercised-set marker, and in the plan 02-04
-#    summary. Those are written once, from this file as it stands in that wave, and are never edited
-#    afterwards to follow a widened writer. A later re-run of the probe gets its own dated finding.
+# 3. It is not the historical record. No document has been submitted yet; the real-certificate
+#    run is left to the repository owner. What the probe document carried when that run was
+#    prepared is frozen in docs/sri-electronic-invoicing.md section 6, under "Element set prepared
+#    for the first test-environment submission". That list is written once and is never edited to
+#    follow a widened writer; the owner's run, when it happens, gets its own dated finding.
 #
 # Lines starting with '#' and blank lines are ignored.
 # Re-derived 2026-10-27 from ProbeDocumentFixture.canonicalOctets() by plan 02-05, Task 2,

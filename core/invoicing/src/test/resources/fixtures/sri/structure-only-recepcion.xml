@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Structure-only reception answer (validarComprobante). Every element value is stripped on
+  purpose: element names, nesting and attribute names survive, no character data does.
+
+  This file is MODELLED, not captured. No document has been submitted to the SRI from this
+  project; the real test-environment run is left to the repository owner. The shape comes from
+  the published specification as summarised in docs/sri-electronic-invoicing.md section 7 and
+  from public SRI samples. The SOAP wrapper names (validarComprobanteResponse,
+  RespuestaRecepcionComprobante) have not been checked against the service WSDL. The probe's
+  reader matches on local names, so a wrapper-name difference does not change what it reads.
+
+  One comprobante with one mensaje is shown so every element the reader consumes appears once.
+  A RECIBIDA answer usually carries an empty comprobantes element.
+-->
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <ns2:validarComprobanteResponse xmlns:ns2="http://ec.gob.sri.ws.recepcion">
+      <RespuestaRecepcionComprobante>
+        <estado/>
+        <comprobantes>
+          <comprobante>
+            <claveAcceso/>
+            <mensajes>
+              <mensaje>
+                <identificador/>
+                <mensaje/>
+                <informacionAdicional/>
+                <tipo/>
+              </mensaje>
+            </mensajes>
+          </comprobante>
+        </comprobantes>
+      </RespuestaRecepcionComprobante>
+    </ns2:validarComprobanteResponse>
+  </soap:Body>
+</soap:Envelope>
