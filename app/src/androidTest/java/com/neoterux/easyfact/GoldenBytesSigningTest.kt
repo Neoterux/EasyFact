@@ -30,6 +30,7 @@ import com.neoterux.easyfact.invoicing.xml.CanonicalDocument
 import com.neoterux.easyfact.invoicing.xml.CanonicalEmitter
 import java.io.ByteArrayInputStream
 import java.io.IOException
+import java.security.InvalidKeyException
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
@@ -54,6 +55,16 @@ import org.junit.runners.Parameterized
  * whether a PKCS#12 encoding opens on this platform at all, and whether the platform renders the issuer
  * name exactly as the JVM does. A failure message carries every difference found in that case, so one
  * run answers all of them. Every case also logs a one-line outcome under the `GoldenBytes` tag.
+ *
+ * **Per-API-level expectations.** A case that signs may declare, in the generator's case definition, the
+ * lowest API level from which it is expected to open (`opensFromApi`, carried in the manifest). Below
+ * that level the test does not skip: it asserts the refusal, an `IOException` whose cause chain names the
+ * MAC or key failure, so a platform that starts opening the file fails the test and the expectation is
+ * revisited. At or above it the case must open and sign byte-identically to the JVM. The only such
+ * case is `p12-modern-aes` (PBES2 AES-256 with an HmacSHA256 MAC), measured to be refused on API 31 and
+ * opened on API 34 and 37. **API 32 and 33 are unmeasured and are assumed to refuse like 31**: the
+ * threshold is 34, the lowest level measured to open it. If an emulator on 32 or 33 opens the file the
+ * test fails and the threshold must be lowered with a measurement.
  */
 @RunWith(Parameterized::class)
 class GoldenBytesSigningTest(private val caseId: String) {
@@ -88,7 +99,41 @@ class GoldenBytesSigningTest(private val caseId: String) {
         fail("API $api opened the PKCS#12 of case $caseId with the wrong password; it must refuse with an IOException")
     }
 
+    /**
+     * The expected refusal of a store this API level cannot open. It asserts rather than skips: an
+     * `IOException` whose cause chain names the MAC or key failure. Anything else, including a
+     * successful open, is a failure, because the expectation no longer describes the platform.
+     */
+    private fun assertRefusedToOpen(case: GoldenCase, api: Int) {
+        try {
+            loadIdentity(case)
+        } catch (e: IOException) {
+            val chain = generateSequence<Throwable>(e) { it.cause }.toList()
+            val namesMacOrKeyFailure = chain.any {
+                it is InvalidKeyException || it.message.orEmpty().contains("error constructing MAC")
+            }
+            assertTrue(
+                "API $api refused the ${case.encoding} PKCS#12 of case $caseId, but not for the expected MAC/key " +
+                    "reason: ${chain.joinToString(" <- ") { "${it.javaClass.name}: ${it.message}" }}",
+                namesMacOrKeyFailure,
+            )
+            Log.i(TAG, "api=$api case=$caseId encoding=${case.encoding} outcome=refused-as-expected-below-api-${case.opensFromApi}")
+            return
+        } catch (e: Exception) {
+            fail("API $api failed to open the ${case.encoding} PKCS#12 of case $caseId with ${e.javaClass.name}, not the expected IOException: ${e.message}")
+            return
+        }
+        fail(
+            "API $api opened the ${case.encoding} PKCS#12 of case $caseId, which is expected to be refused below " +
+                "API ${case.opensFromApi}; the expectation (opensFromApi in the generator's case definition) needs a new measurement",
+        )
+    }
+
     private fun assertSignsLikeTheJvm(case: GoldenCase, api: Int) {
+        if (api < case.opensFromApi) {
+            assertRefusedToOpen(case, api)
+            return
+        }
         val problems = ArrayList<String>()
 
         val identity = try {
@@ -177,6 +222,7 @@ class GoldenBytesSigningTest(private val caseId: String) {
         val encoding: String,
         val expect: String,
         val expectedSigned: String?,
+        val opensFromApi: Int,
         val issuerRenderings: Map<String, String>,
     )
 
@@ -208,6 +254,7 @@ class GoldenBytesSigningTest(private val caseId: String) {
                     encoding = properties.getProperty("$prefix.encoding"),
                     expect = properties.getProperty("$prefix.expect"),
                     expectedSigned = properties.getProperty("$prefix.expectedSigned"),
+                    opensFromApi = properties.getProperty("$prefix.opensFromApi")?.toIntOrNull() ?: 0,
                     issuerRenderings = IssuerNameFormats.ALL.associate { (name, _) ->
                         name to properties.getProperty("$prefix.issuer.$name").orEmpty()
                     },

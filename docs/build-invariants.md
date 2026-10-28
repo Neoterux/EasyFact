@@ -430,15 +430,30 @@ then failed with `System image does not exist`. Installing that image once with 
 matrix run; if a first run fails this way, install the missing image first or run with
 `--max-workers=1`.
 
-**Standing result (2026-10-27, Apple Silicon host, `aosp` images).** The matrix is red on API 31 by
-design and green on API 34 and 37. On API 31 the case `p12-modern-aes` fails with
-`IOException: error constructing MAC: InvalidKeyException: No installed provider supports this key`:
-API 31's PKCS#12 keystore cannot open the AES-256 / HmacSHA256 encoding that a current JDK or
-OpenSSL 3 writes. The legacy encoding opens on all three levels, and every case that opens produced
-the JVM's bytes. The failure is left visible rather than recorded as an expected refusal, so the
-decision of what the app does with such a file (reject it with a plain-language message, or re-encode
-it) is made in the certificate-handling phase, not hidden in a test table. API 32 and 33 were not run,
-so where the encoding starts to open is not measured.
+**Per-API-level expectation: the AES PKCS#12 on API 31.** A case may declare the lowest API level
+from which it is expected to open (`opensFromApi`, set in the case definition in
+`GoldenAssetGenerator.kt` and written to the manifest; `GoldenAssetCheck` requires it for every
+signing case). Below that level the test does not skip: it asserts the refusal, an `IOException`
+whose cause chain names the MAC or key failure, so a platform that starts opening the file fails the
+test. At or above it the case must open and produce the JVM's bytes. The only case with a non-zero
+threshold is `p12-modern-aes`, with threshold 34.
+
+**Standing result (2026-10-27, Apple Silicon host, `aosp` images).** On API 31 the
+PKCS#12 keystore cannot open the AES-256 / HmacSHA256 encoding that a current JDK or OpenSSL 3
+writes: `load` throws `IOException: error constructing MAC: InvalidKeyException: No installed
+provider supports this key: ...PKCS12Key`. That refusal is the expected, asserted outcome there. API 34
+and 37 open it and produce the JVM's bytes. The legacy encoding opens on all three levels, and every
+case that opens produced the JVM's bytes.
+
+**Assumption for API 32 and 33.** They are not measured. The threshold is 34, the lowest level
+measured to open the file, so 32 and 33 are treated as refusing like 31. If an emulator on either
+level opens the file the test fails, and the threshold must be lowered after measuring it. The
+matrix declares only API 31, 34 and 37, so this assumption is not exercised by default.
+
+**What the limitation means for the app.** A `.p12` re-exported with a current tool can use the
+AES encoding, and an API 31 device cannot open it, whatever the password. Handling a PKCS#12 the
+device cannot open (rejecting it with a plain-language message, or re-encoding it) belongs to the
+certificate import (Phase 4), not to this matrix, which only records and asserts the platform's behaviour.
 
 **What it cannot see.** It proves byte equality for six synthetic certificates on three emulators on an
 Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing

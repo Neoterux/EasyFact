@@ -64,6 +64,9 @@ object GoldenAssetGenerator {
 
     private const val WRONG_PASSWORD = "not-the-password"
 
+    /** First level at which the AES-256 / HmacSHA256 PKCS#12 is expected to open. 34 is the lowest level measured to open it. */
+    private const val AES_PKCS12_OPENS_FROM_API = 34
+
     /** What the device is expected to do with a case. */
     enum class Expectation {
         /** The store opens and signing reproduces the expected bytes. */
@@ -82,6 +85,13 @@ object GoldenAssetGenerator {
         val expectation: Expectation,
         /** The password written to the manifest for the device to use; deliberately wrong for [Expectation.REJECTS_PASSWORD]. */
         val devicePassword: String,
+        /**
+         * The lowest Android API level at which a [Expectation.SIGNS] case is expected to open. Below it the
+         * device must refuse the store (an `IOException` naming the MAC or key failure) and the test asserts
+         * that refusal, so a platform that starts opening the file fails the test and the expectation gets
+         * revisited. `0` means the case is expected to open on every level.
+         */
+        val opensFromApi: Int = 0,
     )
 
     /**
@@ -129,6 +139,10 @@ object GoldenAssetGenerator {
             Pkcs12Encoding.MODERN_AES,
             Expectation.SIGNS,
             SyntheticCertificates.DEFAULT_PASSWORD,
+            // Measured: API 31 refuses ("error constructing MAC ... No installed provider supports this
+            // key: PKCS12Key"); API 34 and 37 open it. API 32 and 33 are UNMEASURED and are assumed to
+            // refuse like 31, so an emulator on either level that opens the file fails the test.
+            opensFromApi = AES_PKCS12_OPENS_FROM_API,
         ),
         GoldenCase(
             "wrong-password",
@@ -179,6 +193,7 @@ object GoldenAssetGenerator {
             manifest["$prefix.password"] = case.devicePassword
             manifest["$prefix.encoding"] = case.encoding.name
             manifest["$prefix.expect"] = case.expectation.name
+            manifest["$prefix.opensFromApi"] = case.opensFromApi.toString()
             for ((formatName, format) in IssuerNameFormats.ALL) {
                 manifest["$prefix.issuer.$formatName"] = format.render(identity.certificate)
             }

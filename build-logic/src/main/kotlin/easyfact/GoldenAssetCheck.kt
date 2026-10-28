@@ -59,7 +59,13 @@ object GoldenAssetCheck {
             val prefix = "case.$case"
             requireFile("$case p12", manifest.getProperty("$prefix.p12"))
             when (val expect = manifest.getProperty("$prefix.expect")) {
-                "SIGNS" -> requireFile("$case expectedSigned", manifest.getProperty("$prefix.expectedSigned"))
+                "SIGNS" -> {
+                    requireFile("$case expectedSigned", manifest.getProperty("$prefix.expectedSigned"))
+                    val opensFrom = manifest.getProperty("$prefix.opensFromApi")
+                    if (opensFrom?.trim()?.toIntOrNull()?.let { it >= 0 } != true) {
+                        result += "MISSING or invalid manifest entry $case opensFromApi ('$opensFrom'): a non-negative API level is required"
+                    }
+                }
                 "REJECTS_PASSWORD" -> Unit
                 else -> result += "UNKNOWN expectation '$expect' for case $case (expected one of $EXPECTATIONS)"
             }

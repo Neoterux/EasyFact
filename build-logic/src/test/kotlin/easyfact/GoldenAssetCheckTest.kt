@@ -32,6 +32,7 @@ class GoldenAssetCheckTest {
         case.a.p12=a.p12
         case.a.expect=SIGNS
         case.a.expectedSigned=a.expected-signed.xml
+        case.a.opensFromApi=0
         case.b.p12=b.p12
         case.b.expect=REJECTS_PASSWORD
     """.trimIndent()
@@ -79,5 +80,22 @@ class GoldenAssetCheckTest {
     fun anUnknownExpectationIsAProblem() {
         val broken = manifest.replace("REJECTS_PASSWORD", "SKIPPED")
         assertTrue(check(broken).single().startsWith("UNKNOWN expectation 'SKIPPED' for case b"))
+    }
+
+    @Test
+    fun aSigningCaseWithoutAnApiExpectationIsAProblem() {
+        val broken = manifest.replace("case.a.opensFromApi=0\n", "")
+        assertTrue(check(broken).single().startsWith("MISSING or invalid manifest entry a opensFromApi"))
+    }
+
+    @Test
+    fun aNonNumericApiExpectationIsAProblem() {
+        val broken = manifest.replace("opensFromApi=0", "opensFromApi=latest")
+        assertTrue(check(broken).single().startsWith("MISSING or invalid manifest entry a opensFromApi ('latest')"))
+    }
+
+    @Test
+    fun aNonZeroApiExpectationIsAccepted() {
+        assertEquals(emptyList<String>(), check(manifest.replace("opensFromApi=0", "opensFromApi=34")))
     }
 }
