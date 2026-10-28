@@ -447,12 +447,78 @@ class FacturaWriterTest {
     }
 
     @Test
+    fun aContribuyenteEspecialShorterThanThreeIsATypedFailure() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.FieldTooShort("contribuyenteEspecial", 3, 2),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(specialTaxpayerNumber = "12"))),
+        )
+    }
+
+    @Test
+    fun aContribuyenteEspecialOfThreeIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        assertWritesAndValidates(base.copy(invoiceInfo = base.invoiceInfo.copy(specialTaxpayerNumber = "123")))
+    }
+
+    @Test
+    fun aRefundAuthorizationNumberOfNineDigitsIsATypedFailure() {
+        val full = SampleFactura.fullyPopulated()
+        val refund = full.refunds.single().copy(authorizationNumber = "123456789")
+        assertEquals(
+            FacturaError.FieldTooShort("numeroautorizacionDocReemb", 10, 9),
+            error(full.copy(refunds = listOf(refund))),
+        )
+    }
+
+    private fun lineWithDetails(count: Int): Factura {
+        val base = SampleFactura.factura()
+        val details = (1..count).map { LineDetailField("Detail$it", "value") }
+        return base.copy(lines = listOf(base.lines.single().copy(additionalDetails = details)))
+    }
+
+    @Test
+    fun fourDetAdicionalEntriesOnOneLineIsATypedFailure() {
+        assertEquals(FacturaError.TooManyEntries("detallesAdicionales", 3, 4), error(lineWithDetails(4)))
+    }
+
+    @Test
+    fun threeDetAdicionalEntriesAreWrittenAndValidate() {
+        assertWritesAndValidates(lineWithDetails(3))
+    }
+
+    /** A supplementary character is one schema character and two UTF-16 units. */
+    private val supplementary = "\uD83D\uDE00"
+
+    @Test
+    fun aRazonSocialOf300CodePointsWithASupplementaryCharacterIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        val name = "A".repeat(299) + supplementary
+        assertEquals(300, name.codePointCount(0, name.length))
+        assertEquals(301, name.length)
+        assertWritesAndValidates(base.copy(taxInfo = base.taxInfo.copy(legalName = name)))
+    }
+
+    @Test
+    fun aRazonSocialOf301CodePointsIsATypedFailureCountedInCodePoints() {
+        val base = SampleFactura.factura()
+        val name = "A".repeat(300) + supplementary
+        assertEquals(
+            FacturaError.FieldTooLong("razonSocial", 300, 301),
+            error(base.copy(taxInfo = base.taxInfo.copy(legalName = name))),
+        )
+    }
+
+    @Test
     fun aFailureNeverCarriesTheOffendingValue() {
         val base = SampleFactura.factura()
         val secret = "Z".repeat(301)
         val rendered = error(base.copy(taxInfo = base.taxInfo.copy(legalName = secret))).toString()
         assertFalse(rendered, rendered.contains(secret))
         assertFalse(rendered, rendered.contains("ZZZ"))
+        val tooShort = error(base.copy(invoiceInfo = base.invoiceInfo.copy(specialTaxpayerNumber = "zq"))).toString()
+        assertTrue(tooShort, tooShort.startsWith("FieldTooShort("))
+        assertFalse(tooShort, tooShort.contains("zq"))
     }
 
     // ---- the full document still signs and verifies -------------------------------------------

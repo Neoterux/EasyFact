@@ -36,10 +36,20 @@ sealed interface FacturaError {
     /** The SRI element name the failure is about, so the UI can point at one field. */
     val element: String
 
-    /** [element] is longer than the schema's `maxLength` facet allows. */
+    /** [element] is longer than the schema's `maxLength` facet allows, counted in Unicode code points. */
     data class FieldTooLong(
         override val element: String,
         val maxLength: Int,
+        val actualLength: Int,
+    ) : FacturaError
+
+    /**
+     * [element] is shorter than the schema's `minLength` facet allows. Like every variant it carries
+     * the element name and the two lengths, never the value that was too short.
+     */
+    data class FieldTooShort(
+        override val element: String,
+        val minLength: Int,
         val actualLength: Int,
     ) : FacturaError
 
@@ -64,7 +74,11 @@ sealed interface FacturaError {
         val allowed: Set<String>,
     ) : FacturaError
 
-    /** [element] repeats more times than the specification allows; `infoAdicional` caps at 15. */
+    /**
+     * [element] repeats more times than the specification allows: the `infoAdicional` container
+     * caps its `campoAdicional` entries at 15, and the `detallesAdicionales` container caps its
+     * `detAdicional` entries at 3.
+     */
     data class TooManyEntries(
         override val element: String,
         val maxEntries: Int,

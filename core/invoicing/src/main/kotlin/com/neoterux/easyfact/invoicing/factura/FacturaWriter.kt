@@ -95,6 +95,8 @@ object FacturaWriter {
         val path: String,
         val kind: Kind,
         val maxLength: Int? = null,
+        val minLength: Int? = null,
+        val maxOccurs: Int? = null,
         val guardLength: Int? = null,
     ) {
         val name: String get() = path.substringAfterLast('/').removePrefix("@")

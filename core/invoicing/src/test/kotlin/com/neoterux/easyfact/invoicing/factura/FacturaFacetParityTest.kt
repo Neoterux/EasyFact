@@ -69,6 +69,16 @@ class FacturaFacetParityTest {
             if (facet.kind != Kind.TEXT && facet.maxLength != null) {
                 lines += "DRIFT maxLength ${facet.path} facet=${facet.maxLength} on a ${facet.kind} facet"
             }
+            if (facet.kind == Kind.TEXT && facet.minLength != node.minLength) {
+                lines += "DRIFT minLength ${facet.path} facet=${facet.minLength} schema=${node.minLength}"
+            }
+            if (facet.kind != Kind.TEXT && facet.minLength != null) {
+                lines += "DRIFT minLength ${facet.path} facet=${facet.minLength} on a ${facet.kind} facet"
+            }
+            val schemaOccurs = node.maxOccurs?.takeIf { it > 1 }
+            if (facet.maxOccurs != schemaOccurs) {
+                lines += "DRIFT maxOccurs ${facet.path} facet=${facet.maxOccurs} schema=$schemaOccurs"
+            }
             if (facet.guardLength != null && node.maxLength != null) {
                 lines += "DRIFT guardLength ${facet.path} guard=${facet.guardLength} beside schema maxLength=${node.maxLength}"
             }
@@ -128,6 +138,20 @@ class FacturaFacetParityTest {
     }
 
     @Test
+    fun aChangedContribuyenteEspecialMinLengthIsReportedAsDrift() {
+        val path = "factura/infoFactura/contribuyenteEspecial"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(minLength = 4) else it }
+        assertEquals(listOf("DRIFT minLength $path facet=4 schema=3"), drift(mutated))
+    }
+
+    @Test
+    fun aChangedDetAdicionalMaxOccursIsReportedAsDrift() {
+        val path = "factura/detalles/detalle/detallesAdicionales/detAdicional"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(maxOccurs = 4) else it }
+        assertEquals(listOf("DRIFT maxOccurs $path facet=4 schema=3"), drift(mutated))
+    }
+
+    @Test
     fun theCorrectedFacetsAreInTheTable() {
         assertEquals(300, facet("factura/infoAdicional/campoAdicional").maxLength)
         assertEquals(8, facet("factura/infoTributaria/agenteRetencion").maxLength)
@@ -136,5 +160,8 @@ class FacturaFacetParityTest {
         assertEquals(100, facet("factura/tipoNegociable/correo").maxLength)
         assertEquals(1, facet("factura/infoFactura/totalConImpuestos/totalImpuesto/codigo").maxLength)
         assertEquals(1, facet("factura/detalles/detalle/impuestos/impuesto/codigo").maxLength)
+        assertEquals(3, facet("factura/infoFactura/contribuyenteEspecial").minLength)
+        assertEquals(10, facet("factura/reembolsos/reembolsoDetalle/numeroautorizacionDocReemb").minLength)
+        assertEquals(15, facet("factura/infoAdicional/campoAdicional").maxOccurs)
     }
 }
