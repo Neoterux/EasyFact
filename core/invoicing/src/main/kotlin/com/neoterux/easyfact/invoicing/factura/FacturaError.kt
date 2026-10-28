@@ -105,4 +105,13 @@ sealed interface FacturaError {
         val maxEntries: Int,
         val actualEntries: Int,
     ) : FacturaError
+
+    /**
+     * [element] names a container that is mandatory, or always emitted by this writer, and its list
+     * is empty, which the schema forbids: `<detalles></detalles>` is not a document the SRI accepts
+     * and would be found out only after the sequential was spent. [element] is the container's
+     * name (`detalles`), not its repeating child's, mirroring [TooManyEntries]. Like every variant
+     * it carries the name only.
+     */
+    data class EmptyCollection(override val element: String) : FacturaError
 }

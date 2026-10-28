@@ -609,6 +609,7 @@ object FacturaWriter {
     }
 
     private fun writeLines(out: Emission, lines: List<InvoiceLine>) {
+        if (!out.nonEmpty(DETALLES, lines)) return
         out.open(DETALLES)
         for (line in lines) {
             out.open(DETALLE)
@@ -796,6 +797,17 @@ object FacturaWriter {
 
         fun fail(reason: FacturaError) {
             if (error == null) error = reason
+        }
+
+        /**
+         * Guards a container that the schema requires to carry at least one child: when [list] is
+         * empty it records [FacturaError.EmptyCollection] for [container] and returns false, and the
+         * caller returns before opening the container, so nothing is left half-open.
+         */
+        fun nonEmpty(container: Facet, list: List<*>): Boolean {
+            if (list.isNotEmpty()) return true
+            fail(FacturaError.EmptyCollection(container.name))
+            return false
         }
 
         fun open(element: Facet, attributes: Map<String, String> = emptyMap()) {
