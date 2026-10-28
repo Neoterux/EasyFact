@@ -47,3 +47,7 @@ secrets.properties
 
 # GSD planning artifacts — local only (config.json commit_docs=false)
 .planning/
+
+# Local tooling: Python virtualenv and graphify knowledge-graph output
+/.venv/
+/graphify-out/
