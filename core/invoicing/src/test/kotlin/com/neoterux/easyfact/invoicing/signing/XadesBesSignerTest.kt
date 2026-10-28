@@ -30,6 +30,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -274,6 +275,77 @@ class XadesBesSignerTest {
         val broken = root.copyOf().also { it[20] = 0xC3.toByte(); it[21] = 0x28 }
         val error = errorOf(sign(CanonicalDocument(ByteArray(0), broken)))
         assertTrue(error is SigningError.InputNotCanonical)
+    }
+
+    // --- no exception crosses the Outcome boundary ------------------------------------------
+
+    private fun opaqueIdentity() =
+        SigningIdentity(OpaqueTestKey(TestIdentities.plain.privateKey), TestIdentities.plain.certificate)
+
+    @Test
+    fun aClockThatThrowsIsATypedFailureNamingTheClock() {
+        val clock: () -> java.time.OffsetDateTime = { throw java.time.DateTimeException("Test Signing CA clock fault") }
+        val outcome = XadesBesSigner(FixedIdSource(100000), Rfc2253Jdk, clock).sign(SampleFactura.document(), TestIdentities.plain)
+        assertEquals(SigningError.SigningFailed("clock"), errorOf(outcome))
+    }
+
+    @Test
+    fun anIssuerNameFormatThatThrowsIsATypedFailureNamingTheIssuerName() {
+        val format = IssuerNameFormat { throw IllegalArgumentException("Test Signing CA could not be rendered") }
+        val error = errorOf(signer(format = format).sign(SampleFactura.document(), TestIdentities.plain))
+        assertEquals(SigningError.SigningFailed("issuer-name"), error)
+    }
+
+    @Test
+    fun anIssuerNameWithACharacterXmlForbidsIsATypedFailureNamingTheIssuerName() {
+        val format = IssuerNameFormat { "CN=a\u0001b" }
+        val error = errorOf(signer(format = format).sign(SampleFactura.document(), TestIdentities.plain))
+        assertEquals(SigningError.SigningFailed("issuer-name"), error)
+    }
+
+    @Test
+    fun aProviderThatFailsDuringTheKeyCheckIsATypedFailureNamingTheKeyCheck() {
+        val error = ThrowingSignatureProvider.use(allowedSignatures = 0) { errorOf(sign(identity = opaqueIdentity())) }
+        assertEquals(SigningError.SigningFailed("key-check"), error)
+    }
+
+    @Test
+    fun aProviderThatFailsWhileSigningSignedInfoIsATypedFailureNamingTheSignature() {
+        val error = ThrowingSignatureProvider.use(allowedSignatures = 1) { errorOf(sign(identity = opaqueIdentity())) }
+        assertEquals(SigningError.SigningFailed("signature"), error)
+    }
+
+    @Test
+    fun theOpaqueKeySignsAndValidatesWhenTheProviderDoesNotFail() {
+        val outcome = ThrowingSignatureProvider.use(allowedSignatures = 2) { sign(identity = opaqueIdentity()) }
+        assertTrue("got $outcome", outcome is Outcome.Ok)
+        assertTrue(Jsr105Verifier.validate((outcome as Outcome.Ok).value.octets()))
+    }
+
+    @Test
+    fun theTestProviderIsGoneAfterEveryUseEvenWhenTheBlockThrows() {
+        ThrowingSignatureProvider.use(allowedSignatures = 0) { errorOf(sign(identity = opaqueIdentity())) }
+        assertNull(java.security.Security.getProvider(ThrowingSignatureProvider.NAME))
+        try {
+            ThrowingSignatureProvider.use(allowedSignatures = 0) { throw IllegalStateException("boom") }
+        } catch (expected: IllegalStateException) {
+            // the provider must still be removed
+        }
+        assertNull(java.security.Security.getProvider(ThrowingSignatureProvider.NAME))
+    }
+
+    @Test
+    fun noContainedFailureRendersASubjectAnIssuerOrKeyMaterial() {
+        val sensitive = listOf("Test Signing CA", "Test CA S.A.", "CN=", "BEGIN", "test provider failure", SyntheticCertificates.DEFAULT_PASSWORD)
+        val clock: () -> java.time.OffsetDateTime = { throw java.time.DateTimeException("Test Signing CA clock fault") }
+        val renderings = mutableListOf<String>()
+        renderings += errorOf(XadesBesSigner(FixedIdSource(100000), Rfc2253Jdk, clock).sign(SampleFactura.document(), TestIdentities.plain)).toString()
+        renderings += errorOf(signer(format = IssuerNameFormat { throw IllegalArgumentException("CN=Test CA S.A.") }).sign(SampleFactura.document(), TestIdentities.plain)).toString()
+        renderings += ThrowingSignatureProvider.use(0) { errorOf(sign(identity = opaqueIdentity())).toString() }
+        renderings += ThrowingSignatureProvider.use(1) { errorOf(sign(identity = opaqueIdentity())).toString() }
+        for (rendering in renderings) {
+            for (needle in sensitive) assertFalse("'$needle' leaked into: $rendering", rendering.contains(needle))
+        }
     }
 
     // --- the document reference must resolve to the root ------------------------------------

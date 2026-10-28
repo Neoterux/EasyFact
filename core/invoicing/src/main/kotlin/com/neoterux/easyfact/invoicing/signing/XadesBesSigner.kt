@@ -59,8 +59,12 @@ import java.util.Locale
  * twice: once with the declarations on its apex (the form that is digested) and once without (the
  * form that sits inside the already-declaring `ds:Signature`).
  *
- * Failure is a value: every foreseeable problem is a [SigningError], and the single place that
- * calls the JCA catches [GeneralSecurityException] and reports the stage.
+ * Failure is a value: every foreseeable problem is a [SigningError], and no exception leaves
+ * [sign]. The places that call the JCA, the injected clock or the issuer-name format catch
+ * [GeneralSecurityException] and [RuntimeException] alike and report the stage: a Keystore-backed
+ * key surfaces provider trouble as `java.security.ProviderException`, which is a
+ * [RuntimeException]. The cause is dropped, since a provider message can quote key or certificate
+ * details.
  *
  * @param idSource supplies the eight numbers the element ids are built from; a signer instance
  * consumes eight per signature, so build a new instance for a repeatable result
@@ -75,7 +79,11 @@ class XadesBesSigner(
 ) : Signer {
 
     override fun sign(document: CanonicalDocument, identity: SigningIdentity): Outcome<SignedDocument, SigningError> {
-        val signingTime = clock()
+        val signingTime = try {
+            clock()
+        } catch (e: RuntimeException) {
+            return Outcome.Err(SigningError.SigningFailed("clock"))
+        }
         val certificate = identity.certificate
 
         val publicKey = certificate.publicKey as? RSAPublicKey
@@ -95,6 +103,8 @@ class XadesBesSigner(
         val matches = try {
             privateKeyMatches(identity.privateKey, publicKey)
         } catch (e: GeneralSecurityException) {
+            return Outcome.Err(SigningError.SigningFailed("key-check"))
+        } catch (e: RuntimeException) {
             return Outcome.Err(SigningError.SigningFailed("key-check"))
         }
         if (!matches) return Outcome.Err(SigningError.PrivateKeyDoesNotMatchCertificate)
@@ -119,13 +129,21 @@ class XadesBesSigner(
             val modulusB64 = BASE64.encodeToString(unsigned(publicKey.modulus))
             val exponentB64 = BASE64.encodeToString(unsigned(publicKey.publicExponent))
 
+            // The issuer name is rendered by an injected format and goes into the document as text,
+            // so it is checked here: a character XML 1.0 forbids would make the signed output
+            // not well-formed.
+            stage = "issuer-name"
+            val renderedIssuer = issuerNameFormat.render(certificate)
+            if (!CanonicalEmitter.isLegalXmlText(renderedIssuer)) return Outcome.Err(SigningError.SigningFailed(stage))
+            val issuer = CanonicalEmitter.escapeText(renderedIssuer)
+
             // 1. The document digest is the digest of the root as written: the enveloped-signature
             //    transform removes the signature, which is the last child, leaving exactly these octets.
             stage = "digest"
             val documentDigest = sha1(root)
 
             // 2. SignedProperties. The digested form carries the in-scope namespace declarations.
-            val signedPropertiesBody = signedPropertiesBody(certificate, signingTime, documentReferenceId)
+            val signedPropertiesBody = signedPropertiesBody(certificate, signingTime, documentReferenceId, issuer)
             val signedPropertiesDigested =
                 "<etsi:SignedProperties$NAMESPACES Id=\"$signedPropertiesId\">$signedPropertiesBody</etsi:SignedProperties>"
             val signedPropertiesInDocument =
@@ -177,6 +195,9 @@ class XadesBesSigner(
         } catch (e: GeneralSecurityException) {
             // The cause is deliberately dropped: a provider message can quote key or certificate details.
             return Outcome.Err(SigningError.SigningFailed(stage))
+        } catch (e: RuntimeException) {
+            // Same for a RuntimeException, which is how Keystore-backed providers report failure.
+            return Outcome.Err(SigningError.SigningFailed(stage))
         }
     }
 
@@ -200,9 +221,13 @@ class XadesBesSigner(
         }
     }
 
-    private fun signedPropertiesBody(certificate: X509Certificate, time: OffsetDateTime, documentReferenceId: String): String {
+    private fun signedPropertiesBody(
+        certificate: X509Certificate,
+        time: OffsetDateTime,
+        documentReferenceId: String,
+        issuer: String,
+    ): String {
         val certificateDigest = sha1(certificate.encoded)
-        val issuer = CanonicalEmitter.escapeText(issuerNameFormat.render(certificate))
         val serial = certificate.serialNumber.toString()
         return "<etsi:SignedSignatureProperties><etsi:SigningTime>${time.format(SIGNING_TIME)}</etsi:SigningTime>" +
             "<etsi:SigningCertificate><etsi:Cert><etsi:CertDigest><ds:DigestMethod Algorithm=\"${DS}sha1\"></ds:DigestMethod>" +
