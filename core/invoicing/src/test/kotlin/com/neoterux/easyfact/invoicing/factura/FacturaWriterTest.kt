@@ -24,6 +24,7 @@ import com.neoterux.easyfact.invoicing.signing.TestIdentities
 import com.neoterux.easyfact.invoicing.signing.XadesBesSigner
 import com.neoterux.easyfact.invoicing.verify.C14nIdentityOracle
 import com.neoterux.easyfact.invoicing.verify.Jsr105Verifier
+import com.neoterux.easyfact.invoicing.verify.XsdGate
 import java.math.BigDecimal
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -383,6 +384,65 @@ class FacturaWriterTest {
         assertEquals(
             FacturaError.TooManyEntries("infoAdicional", 15, 16),
             error(base.copy(additionalFields = sixteen)),
+        )
+    }
+
+    // ---- facets equal the vendored schema (plan 02-13) ---------------------------------------------
+
+    private fun assertWritesAndValidates(factura: Factura) {
+        XsdGate.validate(SampleFactura.write(factura).octets())
+    }
+
+    @Test
+    fun aCampoAdicionalOf300CharactersIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        assertWritesAndValidates(base.copy(additionalFields = listOf(AdditionalField("Notes", "n".repeat(300)))))
+    }
+
+    @Test
+    fun aCampoAdicionalOf301CharactersIsATypedFailure() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.FieldTooLong("campoAdicional", 300, 301),
+            error(base.copy(additionalFields = listOf(AdditionalField("Notes", "n".repeat(301))))),
+        )
+    }
+
+    @Test
+    fun aCorreoOf101CharactersIsATypedFailure() {
+        val base = SampleFactura.factura()
+        val email = "a".repeat(101 - "@example.com".length) + "@example.com"
+        assertEquals(101, email.length)
+        assertEquals(FacturaError.FieldTooLong("correo", 100, 101), error(base.copy(negotiableEmail = email)))
+    }
+
+    @Test
+    fun aCorreoOf100CharactersIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        val email = "a".repeat(100 - "@example.com".length) + "@example.com"
+        assertWritesAndValidates(base.copy(negotiableEmail = email))
+    }
+
+    @Test
+    fun anEightDigitAgenteRetencionIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        assertWritesAndValidates(base.copy(taxInfo = base.taxInfo.copy(withholdingAgentResolution = "12345678")))
+    }
+
+    @Test
+    fun aTenLetterIncoTermFacturaIsWrittenAndValidates() {
+        val base = SampleFactura.factura()
+        val export = ExportInfo(code = "EXPORTADOR", incoTerm = "ABCDEFGHIJ")
+        assertWritesAndValidates(base.copy(invoiceInfo = base.invoiceInfo.copy(exportInfo = export)))
+    }
+
+    @Test
+    fun aThreeDigitCodDocReembolsoIsWrittenAndValidatesInBothPlaces() {
+        val full = SampleFactura.fullyPopulated()
+        val totals = checkNotNull(full.invoiceInfo.refundTotals).copy(documentTypeCode = "123")
+        val refund = full.refunds.single().copy(documentTypeCode = "123")
+        assertWritesAndValidates(
+            full.copy(invoiceInfo = full.invoiceInfo.copy(refundTotals = totals), refunds = listOf(refund)),
         )
     }
 

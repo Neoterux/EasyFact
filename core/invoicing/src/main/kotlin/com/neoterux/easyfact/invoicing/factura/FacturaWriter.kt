@@ -29,10 +29,10 @@ import java.util.Locale
  * Maps a [Factura] onto canonical XML, in the strict element order of the 1.1.0 schema (which is
  * an `xsd:sequence`: a different order is a different, invalid document).
  *
- * The Spanish strings in [E] are the SRI's element and attribute names, kept verbatim because
- * they are protocol identifiers and renaming them would break the mapping to the specification.
- * They are gathered in one place so the mapping is auditable without reading the emission code
- * (AGENTS.md section 2.1), and they are the only Spanish in the package.
+ * The Spanish strings in the [Facet] paths are the SRI's element and attribute names, kept verbatim
+ * because they are protocol identifiers and renaming them would break the mapping to the
+ * specification. They are gathered in one place so the mapping is auditable without reading the
+ * emission code (AGENTS.md section 2.1), and they are the only Spanish in the package.
  *
  * Three rules hold throughout.
  *
@@ -53,166 +53,288 @@ import java.util.Locale
  * is itself a rejection, so the wider scale is the safer of the two.
  *
  * **The vendored XSD is the authority, not this file.** The element order, the `maxLength` facets
- * in [E] and the catalogues in [Catalogues] are read from the Ficha Técnica and from the schema
+ * in [Facet] and the catalogues in [Catalogues] are read from the Ficha Técnica and from the schema
  * excerpt recorded in the phase research. Plan 02-09 vendors `factura_V1.1.0.xsd` and fails the
  * build on a mismatch; where the two disagree, the schema wins and this file is corrected.
  */
 object FacturaWriter {
 
+    /** The kind of content a [Facet] describes. */
+    internal enum class Kind {
+        /** An element that holds other elements, or an element or attribute that holds nothing the writer checks. */
+        CONTAINER,
+
+        /** An element or attribute that holds text. */
+        TEXT,
+
+        /** An element that holds a decimal number, always produced by [Money]. */
+        DECIMAL,
+    }
+
     /**
-     * One element or attribute of the schema: the SRI's own name, and the `maxLength` facet that
-     * bounds its content.
+     * One element or attribute of the schema: where it sits, the SRI's own name for it, and the
+     * bound that is applied to its content.
      *
-     * The facet is a guard, not a claim of schema equivalence. A value within it may still be
-     * rejected by a pattern facet the XSD gate in plan 02-09 checks; a value beyond it is
-     * certainly rejected, and catching that here turns an opaque SRI refusal into a named field.
-     * Numeric elements are bounded generously, because their real constraint is a decimal pattern
-     * rather than a length, and [Money] already guarantees the form.
+     * [path] is the absolute schema path with attributes as an at-sign segment, written exactly as
+     * the test-side schema reader writes it (`factura/infoAdicional/campoAdicional/@nombre`), so
+     * that a test can set this table beside the vendored schema and compare the two. [name] is the
+     * last segment without the at-sign: the element name that is emitted and the element name every
+     * [FacturaError] reports.
+     *
+     * [maxLength] is the schema's own `maxLength` facet, copied by hand and compared with the
+     * schema by a test on every build; it is `null` where the schema states none. [guardLength] is
+     * a bound that belongs to the writer alone and is never compared with the schema. It exists
+     * only where the schema states no `maxLength`, so that an element governed by a pattern or an
+     * enumeration, or by a decimal form [Money] already guarantees, is still bounded. A decimal
+     * element carries a guard that stands in until the schema's decimal facets are enforced, and a
+     * value within a guard may still be rejected by a pattern the schema applies.
+     *
+     * A value is bounded by [maxLength] when there is one, otherwise by [guardLength].
      */
-    private data class E(val name: String, val maxLength: Int = AMOUNT_MAX)
+    internal data class Facet(
+        val path: String,
+        val kind: Kind,
+        val maxLength: Int? = null,
+        val guardLength: Int? = null,
+    ) {
+        val name: String get() = path.substringAfterLast('/').removePrefix("@")
+    }
+
+    /** Every facet declared below, in declaration order; filled by the factories, so complete by construction. */
+    private val registry = mutableListOf<Facet>()
+
+    private fun register(facet: Facet): Facet = facet.also { registry += it }
+
+    private fun container(path: String): Facet = register(Facet(path, Kind.CONTAINER))
+
+    /** A text facet whose schema type states [maxLength]. */
+    private fun bounded(path: String, maxLength: Int): Facet =
+        register(Facet(path, Kind.TEXT, maxLength = maxLength))
+
+    /** A text facet whose schema type states no `maxLength`; the writer keeps its own bound. */
+    private fun guarded(path: String, guardLength: Int): Facet =
+        register(Facet(path, Kind.TEXT, guardLength = guardLength))
+
+    private fun decimal(path: String): Facet =
+        register(Facet(path, Kind.DECIMAL, guardLength = AMOUNT_MAX))
 
     private const val AMOUNT_MAX = 32
     private const val TEXT_MAX = 300
-    private const val FISCAL_MACHINE_MAX = 30
-    private const val UNIT_OF_MEASURE_MAX = 50
-    private const val MAX_ADDITIONAL_FIELDS = 15
 
-    // --- factura -------------------------------------------------------------------------------
-
-    private val FACTURA = E("factura")
-    private val ID_ATTRIBUTE = "id"
-    private val VERSION_ATTRIBUTE = "version"
     private const val ROOT_ID = "comprobante"
     private const val SCHEMA_VERSION = "1.1.0"
 
+    // --- schema paths ------------------------------------------------------------------------------
+
+    private const val ROOT = "factura"
+    private const val TAX_INFO = "$ROOT/infoTributaria"
+    private const val INVOICE_INFO = "$ROOT/infoFactura"
+    private const val TAX_TOTAL = "$INVOICE_INFO/totalConImpuestos/totalImpuesto"
+    private const val COMPENSATION = "$INVOICE_INFO/compensaciones/compensacion"
+    private const val PAYMENT = "$INVOICE_INFO/pagos/pago"
+    private const val LINE = "$ROOT/detalles/detalle"
+    private const val LINE_DETAIL = "$LINE/detallesAdicionales/detAdicional"
+    private const val LINE_TAX = "$LINE/impuestos/impuesto"
+    private const val REFUND = "$ROOT/reembolsos/reembolsoDetalle"
+    private const val REFUND_TAX = "$REFUND/detalleImpuestos/detalleImpuesto"
+    private const val REFUND_COMPENSATION = "$REFUND/compensacionesReembolso/compensacionReembolso"
+    private const val WITHHOLDING = "$ROOT/retenciones/retencion"
+    private const val FISCAL_MACHINE = "$ROOT/maquinaFiscal"
+    private const val ADDITIONAL_FIELD = "$ROOT/infoAdicional/campoAdicional"
+
+    // --- factura -------------------------------------------------------------------------------
+
+    private val FACTURA = container(ROOT)
+    private val ID_ATTRIBUTE = guarded("$ROOT/@id", ROOT_ID.length)
+    private val VERSION_ATTRIBUTE = guarded("$ROOT/@version", SCHEMA_VERSION.length)
+
     // --- infoTributaria ------------------------------------------------------------------------
 
-    private val INFO_TRIBUTARIA = E("infoTributaria")
-    private val AMBIENTE = E("ambiente", 1)
-    private val TIPO_EMISION = E("tipoEmision", 1)
-    private val RAZON_SOCIAL = E("razonSocial", TEXT_MAX)
-    private val NOMBRE_COMERCIAL = E("nombreComercial", TEXT_MAX)
-    private val RUC = E("ruc", 13)
-    private val CLAVE_ACCESO = E("claveAcceso", 49)
-    private val COD_DOC = E("codDoc", 2)
-    private val ESTAB = E("estab", 3)
-    private val PTO_EMI = E("ptoEmi", 3)
-    private val SECUENCIAL = E("secuencial", 9)
-    private val DIR_MATRIZ = E("dirMatriz", TEXT_MAX)
-    private val AGENTE_RETENCION = E("agenteRetencion", 5)
-    private val CONTRIBUYENTE_RIMPE = E("contribuyenteRimpe", TEXT_MAX)
+    private val INFO_TRIBUTARIA = container(TAX_INFO)
+    private val AMBIENTE = guarded("$TAX_INFO/ambiente", 1)
+    private val TIPO_EMISION = guarded("$TAX_INFO/tipoEmision", 1)
+    private val RAZON_SOCIAL = bounded("$TAX_INFO/razonSocial", 300)
+    private val NOMBRE_COMERCIAL = bounded("$TAX_INFO/nombreComercial", 300)
+    private val RUC = guarded("$TAX_INFO/ruc", 13)
+    private val CLAVE_ACCESO = guarded("$TAX_INFO/claveAcceso", 49)
+    private val COD_DOC = guarded("$TAX_INFO/codDoc", 2)
+    private val ESTAB = guarded("$TAX_INFO/estab", 3)
+    private val PTO_EMI = guarded("$TAX_INFO/ptoEmi", 3)
+    private val SECUENCIAL = guarded("$TAX_INFO/secuencial", 9)
+    private val DIR_MATRIZ = bounded("$TAX_INFO/dirMatriz", 300)
+    private val AGENTE_RETENCION = bounded("$TAX_INFO/agenteRetencion", 8)
+    private val CONTRIBUYENTE_RIMPE = guarded("$TAX_INFO/contribuyenteRimpe", TEXT_MAX)
 
     // --- infoFactura ---------------------------------------------------------------------------
 
-    private val INFO_FACTURA = E("infoFactura")
-    private val FECHA_EMISION = E("fechaEmision", 10)
-    private val DIR_ESTABLECIMIENTO = E("dirEstablecimiento", TEXT_MAX)
-    private val CONTRIBUYENTE_ESPECIAL = E("contribuyenteEspecial", 13)
-    private val OBLIGADO_CONTABILIDAD = E("obligadoContabilidad", 2)
-    private val COMERCIO_EXTERIOR = E("comercioExterior", 20)
-    private val INCO_TERM_FACTURA = E("incoTermFactura", 5)
-    private val LUGAR_INCO_TERM = E("lugarIncoTerm", TEXT_MAX)
-    private val PAIS_ORIGEN = E("paisOrigen", 3)
-    private val PUERTO_EMBARQUE = E("puertoEmbarque", TEXT_MAX)
-    private val PUERTO_DESTINO = E("puertoDestino", TEXT_MAX)
-    private val PAIS_DESTINO = E("paisDestino", 3)
-    private val PAIS_ADQUISICION = E("paisAdquisicion", 3)
-    private val TIPO_IDENTIFICACION_COMPRADOR = E("tipoIdentificacionComprador", 2)
-    private val GUIA_REMISION = E("guiaRemision", 17)
-    private val RAZON_SOCIAL_COMPRADOR = E("razonSocialComprador", TEXT_MAX)
-    private val IDENTIFICACION_COMPRADOR = E("identificacionComprador", 20)
-    private val DIRECCION_COMPRADOR = E("direccionComprador", TEXT_MAX)
-    private val TOTAL_SIN_IMPUESTOS = E("totalSinImpuestos")
-    private val TOTAL_SUBSIDIO = E("totalSubsidio")
-    private val INCO_TERM_TOTAL_SIN_IMPUESTOS = E("incoTermTotalSinImpuestos", 5)
-    private val TOTAL_DESCUENTO = E("totalDescuento")
-    private val COD_DOC_REEMBOLSO = E("codDocReembolso", 2)
-    private val TOTAL_COMPROBANTES_REEMBOLSO = E("totalComprobantesReembolso")
-    private val TOTAL_BASE_IMPONIBLE_REEMBOLSO = E("totalBaseImponibleReembolso")
-    private val TOTAL_IMPUESTO_REEMBOLSO = E("totalImpuestoReembolso")
-    private val PROPINA = E("propina")
-    private val FLETE_INTERNACIONAL = E("fleteInternacional")
-    private val SEGURO_INTERNACIONAL = E("seguroInternacional")
-    private val GASTOS_ADUANEROS = E("gastosAduaneros")
-    private val GASTOS_TRANSPORTE_OTROS = E("gastosTransporteOtros")
-    private val IMPORTE_TOTAL = E("importeTotal")
-    private val MONEDA = E("moneda", 15)
-    private val PLACA = E("placa", 20)
-    private val VALOR_RET_IVA = E("valorRetIva")
-    private val VALOR_RET_RENTA = E("valorRetRenta")
+    private val INFO_FACTURA = container(INVOICE_INFO)
+    private val FECHA_EMISION = guarded("$INVOICE_INFO/fechaEmision", 10)
+    private val DIR_ESTABLECIMIENTO = bounded("$INVOICE_INFO/dirEstablecimiento", 300)
+    private val CONTRIBUYENTE_ESPECIAL = bounded("$INVOICE_INFO/contribuyenteEspecial", 13)
+    private val OBLIGADO_CONTABILIDAD = guarded("$INVOICE_INFO/obligadoContabilidad", 2)
+    private val COMERCIO_EXTERIOR = guarded("$INVOICE_INFO/comercioExterior", 20)
+    private val INCO_TERM_FACTURA = bounded("$INVOICE_INFO/incoTermFactura", 10)
+    private val LUGAR_INCO_TERM = bounded("$INVOICE_INFO/lugarIncoTerm", 300)
+    private val PAIS_ORIGEN = guarded("$INVOICE_INFO/paisOrigen", 3)
+    private val PUERTO_EMBARQUE = bounded("$INVOICE_INFO/puertoEmbarque", 300)
+    private val PUERTO_DESTINO = bounded("$INVOICE_INFO/puertoDestino", 300)
+    private val PAIS_DESTINO = guarded("$INVOICE_INFO/paisDestino", 3)
+    private val PAIS_ADQUISICION = guarded("$INVOICE_INFO/paisAdquisicion", 3)
+    private val TIPO_IDENTIFICACION_COMPRADOR = guarded("$INVOICE_INFO/tipoIdentificacionComprador", 2)
+    private val GUIA_REMISION = guarded("$INVOICE_INFO/guiaRemision", 17)
+    private val RAZON_SOCIAL_COMPRADOR = bounded("$INVOICE_INFO/razonSocialComprador", 300)
+    private val IDENTIFICACION_COMPRADOR = bounded("$INVOICE_INFO/identificacionComprador", 20)
+    private val DIRECCION_COMPRADOR = bounded("$INVOICE_INFO/direccionComprador", 300)
+    private val TOTAL_SIN_IMPUESTOS = decimal("$INVOICE_INFO/totalSinImpuestos")
+    private val TOTAL_SUBSIDIO = decimal("$INVOICE_INFO/totalSubsidio")
+    private val INCO_TERM_TOTAL_SIN_IMPUESTOS = bounded("$INVOICE_INFO/incoTermTotalSinImpuestos", 10)
+    private val TOTAL_DESCUENTO = decimal("$INVOICE_INFO/totalDescuento")
+    private val COD_DOC_REEMBOLSO = guarded("$INVOICE_INFO/codDocReembolso", 3)
+    private val TOTAL_COMPROBANTES_REEMBOLSO = decimal("$INVOICE_INFO/totalComprobantesReembolso")
+    private val TOTAL_BASE_IMPONIBLE_REEMBOLSO = decimal("$INVOICE_INFO/totalBaseImponibleReembolso")
+    private val TOTAL_IMPUESTO_REEMBOLSO = decimal("$INVOICE_INFO/totalImpuestoReembolso")
+    private val PROPINA = decimal("$INVOICE_INFO/propina")
+    private val FLETE_INTERNACIONAL = decimal("$INVOICE_INFO/fleteInternacional")
+    private val SEGURO_INTERNACIONAL = decimal("$INVOICE_INFO/seguroInternacional")
+    private val GASTOS_ADUANEROS = decimal("$INVOICE_INFO/gastosAduaneros")
+    private val GASTOS_TRANSPORTE_OTROS = decimal("$INVOICE_INFO/gastosTransporteOtros")
+    private val IMPORTE_TOTAL = decimal("$INVOICE_INFO/importeTotal")
+    private val MONEDA = bounded("$INVOICE_INFO/moneda", 15)
+    private val PLACA = bounded("$INVOICE_INFO/placa", 20)
+    private val VALOR_RET_IVA = decimal("$INVOICE_INFO/valorRetIva")
+    private val VALOR_RET_RENTA = decimal("$INVOICE_INFO/valorRetRenta")
 
-    // --- tax blocks ------------------------------------------------------------------------------
+    // --- tax totals --------------------------------------------------------------------------------
 
-    private val TOTAL_CON_IMPUESTOS = E("totalConImpuestos")
-    private val TOTAL_IMPUESTO = E("totalImpuesto")
-    private val CODIGO = E("codigo", 4)
-    private val CODIGO_PORCENTAJE = E("codigoPorcentaje", 4)
-    private val DESCUENTO_ADICIONAL = E("descuentoAdicional")
-    private val BASE_IMPONIBLE = E("baseImponible")
-    private val VALOR = E("valor")
-    private val VALOR_DEVOLUCION_IVA = E("valorDevolucionIva")
-    private val TARIFA = E("tarifa")
-    private val COMPENSACIONES = E("compensaciones")
-    private val COMPENSACION = E("compensacion")
-    private val RETENCIONES = E("retenciones")
-    private val RETENCION = E("retencion")
+    private val TOTAL_CON_IMPUESTOS = container("$INVOICE_INFO/totalConImpuestos")
+    private val TOTAL_IMPUESTO = container(TAX_TOTAL)
+    private val TOTAL_IMPUESTO_CODIGO = bounded("$TAX_TOTAL/codigo", 1)
+    private val TOTAL_IMPUESTO_CODIGO_PORCENTAJE = bounded("$TAX_TOTAL/codigoPorcentaje", 4)
+    private val DESCUENTO_ADICIONAL = decimal("$TAX_TOTAL/descuentoAdicional")
+    private val TOTAL_IMPUESTO_BASE_IMPONIBLE = decimal("$TAX_TOTAL/baseImponible")
+    // Spelt out in full: an optional element that used to be left out of the document.
+    private val TOTAL_IMPUESTO_TARIFA = decimal("factura/infoFactura/totalConImpuestos/totalImpuesto/tarifa")
+    private val TOTAL_IMPUESTO_VALOR = decimal("$TAX_TOTAL/valor")
+    private val VALOR_DEVOLUCION_IVA = decimal("$TAX_TOTAL/valorDevolucionIva")
 
-    // --- payment and refund blocks ---------------------------------------------------------------
+    // --- compensations (the infoFactura block and the refund block share one item type) -------------
 
-    private val PAGOS = E("pagos")
-    private val PAGO = E("pago")
-    private val FORMA_PAGO = E("formaPago", 2)
-    private val TOTAL = E("total")
-    private val PLAZO = E("plazo")
-    private val UNIDAD_TIEMPO = E("unidadTiempo", 10)
-    private val REEMBOLSOS = E("reembolsos")
-    private val REEMBOLSO_DETALLE = E("reembolsoDetalle")
-    private val TIPO_IDENTIFICACION_PROVEEDOR_REEMBOLSO = E("tipoIdentificacionProveedorReembolso", 2)
-    private val IDENTIFICACION_PROVEEDOR_REEMBOLSO = E("identificacionProveedorReembolso", 20)
-    private val COD_PAIS_PAGO_PROVEEDOR_REEMBOLSO = E("codPaisPagoProveedorReembolso", 3)
-    private val TIPO_PROVEEDOR_REEMBOLSO = E("tipoProveedorReembolso", 2)
-    private val ESTAB_DOC_REEMBOLSO = E("estabDocReembolso", 3)
-    private val PTO_EMI_DOC_REEMBOLSO = E("ptoEmiDocReembolso", 3)
-    private val SECUENCIAL_DOC_REEMBOLSO = E("secuencialDocReembolso", 9)
-    private val FECHA_EMISION_DOC_REEMBOLSO = E("fechaEmisionDocReembolso", 10)
-    private val NUMERO_AUTORIZACION_DOC_REEMB = E("numeroautorizacionDocReemb", 49)
-    private val DETALLE_IMPUESTOS = E("detalleImpuestos")
-    private val DETALLE_IMPUESTO = E("detalleImpuesto")
-    private val BASE_IMPONIBLE_REEMBOLSO = E("baseImponibleReembolso")
-    private val IMPUESTO_REEMBOLSO = E("impuestoReembolso")
-    private val COMPENSACIONES_REEMBOLSO = E("compensacionesReembolso")
-    private val COMPENSACION_REEMBOLSO = E("compensacionReembolso")
+    private val COMPENSACIONES = container("$INVOICE_INFO/compensaciones")
+    private val COMPENSACION = container(COMPENSATION)
+    private val COMPENSACION_CODIGO = guarded("$COMPENSATION/codigo", 4)
+    private val COMPENSACION_TARIFA = decimal("$COMPENSATION/tarifa")
+    private val COMPENSACION_VALOR = decimal("$COMPENSATION/valor")
+
+    private val COMPENSACIONES_REEMBOLSO = container("$REFUND/compensacionesReembolso")
+    private val COMPENSACION_REEMBOLSO = container(REFUND_COMPENSATION)
+    private val COMPENSACION_REEMBOLSO_CODIGO = guarded("$REFUND_COMPENSATION/codigo", 4)
+    private val COMPENSACION_REEMBOLSO_TARIFA = decimal("$REFUND_COMPENSATION/tarifa")
+    private val COMPENSACION_REEMBOLSO_VALOR = decimal("$REFUND_COMPENSATION/valor")
+
+    /** The facets one compensation block is written with, so one writer serves both blocks. */
+    private class CompensationFacets(
+        val container: Facet,
+        val item: Facet,
+        val code: Facet,
+        val rate: Facet,
+        val amount: Facet,
+    )
+
+    private val INVOICE_COMPENSATIONS = CompensationFacets(
+        COMPENSACIONES, COMPENSACION, COMPENSACION_CODIGO, COMPENSACION_TARIFA, COMPENSACION_VALOR,
+    )
+    private val REFUND_COMPENSATIONS = CompensationFacets(
+        COMPENSACIONES_REEMBOLSO,
+        COMPENSACION_REEMBOLSO,
+        COMPENSACION_REEMBOLSO_CODIGO,
+        COMPENSACION_REEMBOLSO_TARIFA,
+        COMPENSACION_REEMBOLSO_VALOR,
+    )
+
+    // --- payments ----------------------------------------------------------------------------------
+
+    private val PAGOS = container("$INVOICE_INFO/pagos")
+    private val PAGO = container(PAYMENT)
+    private val FORMA_PAGO = guarded("$PAYMENT/formaPago", 2)
+    private val TOTAL = decimal("$PAYMENT/total")
+    private val PLAZO = decimal("$PAYMENT/plazo")
+    private val UNIDAD_TIEMPO = bounded("$PAYMENT/unidadTiempo", 10)
 
     // --- detalles -----------------------------------------------------------------------------
 
-    private val DETALLES = E("detalles")
-    private val DETALLE = E("detalle")
-    private val CODIGO_PRINCIPAL = E("codigoPrincipal", 25)
-    private val CODIGO_AUXILIAR = E("codigoAuxiliar", 25)
-    private val DESCRIPCION = E("descripcion", TEXT_MAX)
-    private val UNIDAD_MEDIDA = E("unidadMedida", UNIT_OF_MEASURE_MAX)
-    private val CANTIDAD = E("cantidad")
-    private val PRECIO_UNITARIO = E("precioUnitario")
-    private val PRECIO_SIN_SUBSIDIO = E("precioSinSubsidio")
-    private val DESCUENTO = E("descuento")
-    private val PRECIO_TOTAL_SIN_IMPUESTO = E("precioTotalSinImpuesto")
-    private val DETALLES_ADICIONALES = E("detallesAdicionales")
-    private val DET_ADICIONAL = E("detAdicional")
-    private val IMPUESTOS = E("impuestos")
-    private val IMPUESTO = E("impuesto")
+    private val DETALLES = container("$ROOT/detalles")
+    private val DETALLE = container(LINE)
+    private val CODIGO_PRINCIPAL = bounded("$LINE/codigoPrincipal", 25)
+    private val CODIGO_AUXILIAR = bounded("$LINE/codigoAuxiliar", 25)
+    private val DESCRIPCION = bounded("$LINE/descripcion", 300)
+    private val UNIDAD_MEDIDA = bounded("$LINE/unidadMedida", 50)
+    private val CANTIDAD = decimal("$LINE/cantidad")
+    private val PRECIO_UNITARIO = decimal("$LINE/precioUnitario")
+    private val PRECIO_SIN_SUBSIDIO = decimal("$LINE/precioSinSubsidio")
+    private val DESCUENTO = decimal("$LINE/descuento")
+    private val PRECIO_TOTAL_SIN_IMPUESTO = decimal("$LINE/precioTotalSinImpuesto")
+    private val DETALLES_ADICIONALES = container("$LINE/detallesAdicionales")
+    private val DET_ADICIONAL = container(LINE_DETAIL)
+    private val DET_ADICIONAL_NOMBRE = bounded("$LINE_DETAIL/@nombre", 300)
+    private val DET_ADICIONAL_VALOR = bounded("$LINE_DETAIL/@valor", 300)
+    private val IMPUESTOS = container("$LINE/impuestos")
+    private val IMPUESTO = container(LINE_TAX)
+    private val IMPUESTO_CODIGO = bounded("$LINE_TAX/codigo", 1)
+    private val IMPUESTO_CODIGO_PORCENTAJE = bounded("$LINE_TAX/codigoPorcentaje", 4)
+    private val IMPUESTO_TARIFA = decimal("$LINE_TAX/tarifa")
+    private val IMPUESTO_BASE_IMPONIBLE = decimal("$LINE_TAX/baseImponible")
+    private val IMPUESTO_VALOR = decimal("$LINE_TAX/valor")
+
+    // --- reembolsos ------------------------------------------------------------------------------
+
+    private val REEMBOLSOS = container("$ROOT/reembolsos")
+    private val REEMBOLSO_DETALLE = container(REFUND)
+    private val TIPO_IDENTIFICACION_PROVEEDOR_REEMBOLSO = guarded("$REFUND/tipoIdentificacionProveedorReembolso", 2)
+    private val IDENTIFICACION_PROVEEDOR_REEMBOLSO = bounded("$REFUND/identificacionProveedorReembolso", 20)
+    private val COD_PAIS_PAGO_PROVEEDOR_REEMBOLSO = guarded("$REFUND/codPaisPagoProveedorReembolso", 3)
+    private val TIPO_PROVEEDOR_REEMBOLSO = guarded("$REFUND/tipoProveedorReembolso", 2)
+    private val REEMBOLSO_COD_DOC = guarded("$REFUND/codDocReembolso", 3)
+    private val ESTAB_DOC_REEMBOLSO = guarded("$REFUND/estabDocReembolso", 3)
+    private val PTO_EMI_DOC_REEMBOLSO = guarded("$REFUND/ptoEmiDocReembolso", 3)
+    private val SECUENCIAL_DOC_REEMBOLSO = guarded("$REFUND/secuencialDocReembolso", 9)
+    private val FECHA_EMISION_DOC_REEMBOLSO = guarded("$REFUND/fechaEmisionDocReembolso", 10)
+    private val NUMERO_AUTORIZACION_DOC_REEMB = bounded("$REFUND/numeroautorizacionDocReemb", 49)
+    private val DETALLE_IMPUESTOS = container("$REFUND/detalleImpuestos")
+    private val DETALLE_IMPUESTO = container(REFUND_TAX)
+    private val DETALLE_IMPUESTO_CODIGO = guarded("$REFUND_TAX/codigo", 4)
+    private val DETALLE_IMPUESTO_CODIGO_PORCENTAJE = guarded("$REFUND_TAX/codigoPorcentaje", 4)
+    private val DETALLE_IMPUESTO_TARIFA = decimal("$REFUND_TAX/tarifa")
+    private val BASE_IMPONIBLE_REEMBOLSO = decimal("$REFUND_TAX/baseImponibleReembolso")
+    private val IMPUESTO_REEMBOLSO = decimal("$REFUND_TAX/impuestoReembolso")
+
+    // --- retenciones -------------------------------------------------------------------------------
+
+    private val RETENCIONES = container("$ROOT/retenciones")
+    private val RETENCION = container(WITHHOLDING)
+    private val RETENCION_CODIGO = guarded("$WITHHOLDING/codigo", 4)
+    private val RETENCION_CODIGO_PORCENTAJE = guarded("$WITHHOLDING/codigoPorcentaje", 4)
+    private val RETENCION_TARIFA = decimal("$WITHHOLDING/tarifa")
+    private val RETENCION_VALOR = decimal("$WITHHOLDING/valor")
 
     // --- negotiable, fiscal machine and infoAdicional -----------------------------
 
-    private val TIPO_NEGOCIABLE = E("tipoNegociable")
-    private val CORREO = E("correo", TEXT_MAX)
-    private val MAQUINA_FISCAL = E("maquinaFiscal")
-    private val MARCA = E("marca", FISCAL_MACHINE_MAX)
-    private val MODELO = E("modelo", FISCAL_MACHINE_MAX)
-    private val SERIE = E("serie", FISCAL_MACHINE_MAX)
-    private val INFO_ADICIONAL = E("infoAdicional")
-    private val CAMPO_ADICIONAL = E("campoAdicional")
-    private val NOMBRE_ATTRIBUTE = E("nombre", TEXT_MAX)
-    private val VALOR_ATTRIBUTE = E("valor", TEXT_MAX)
+    private val TIPO_NEGOCIABLE = container("$ROOT/tipoNegociable")
+    private val CORREO = bounded("$ROOT/tipoNegociable/correo", 100)
+    private val MAQUINA_FISCAL = container(FISCAL_MACHINE)
+    private val MARCA = bounded("$FISCAL_MACHINE/marca", 30)
+    private val MODELO = bounded("$FISCAL_MACHINE/modelo", 30)
+    private val SERIE = bounded("$FISCAL_MACHINE/serie", 30)
+    private val INFO_ADICIONAL = container("$ROOT/infoAdicional")
+    private val CAMPO_ADICIONAL = bounded(ADDITIONAL_FIELD, 300)
+    private val CAMPO_ADICIONAL_NOMBRE = bounded("$ADDITIONAL_FIELD/@nombre", 300)
+
+    /**
+     * Every element and attribute the writer emits, with the bound it applies. The writer never
+     * reads the schema; a test sets this list beside the vendored schema and fails on any drift.
+     */
+    internal val FACETS: List<Facet> = registry.toList()
+
+    private const val MAX_ADDITIONAL_FIELDS = 15
 
     /**
      * The catalogues small and stable enough to check here.
@@ -243,7 +365,7 @@ object FacturaWriter {
      */
     fun write(factura: Factura): Outcome<CanonicalDocument, FacturaError> {
         val out = Emission()
-        out.open(FACTURA, mapOf(ID_ATTRIBUTE to ROOT_ID, VERSION_ATTRIBUTE to SCHEMA_VERSION))
+        out.open(FACTURA, mapOf(ID_ATTRIBUTE.name to ROOT_ID, VERSION_ATTRIBUTE.name to SCHEMA_VERSION))
         writeTaxInfo(out, factura.taxInfo)
         writeInvoiceInfo(out, factura.invoiceInfo)
         writeLines(out, factura.lines)
@@ -295,7 +417,7 @@ object FacturaWriter {
         out.amount(TOTAL_DESCUENTO, info.totalDiscount)
         writeRefundTotals(out, info.refundTotals)
         writeTaxTotals(out, info.taxTotals)
-        writeCompensations(out, COMPENSACIONES, COMPENSACION, info.compensations)
+        writeCompensations(out, INVOICE_COMPENSATIONS, info.compensations)
         out.amount(PROPINA, info.tip)
         out.optionalAmount(FLETE_INTERNACIONAL, info.internationalFreight)
         out.optionalAmount(SEGURO_INTERNACIONAL, info.internationalInsurance)
@@ -334,12 +456,12 @@ object FacturaWriter {
         out.open(TOTAL_CON_IMPUESTOS)
         for (total in totals) {
             out.open(TOTAL_IMPUESTO)
-            out.code(CODIGO, total.taxCode, Catalogues.TAX)
-            out.text(CODIGO_PORCENTAJE, total.rateCode)
+            out.code(TOTAL_IMPUESTO_CODIGO, total.taxCode, Catalogues.TAX)
+            out.text(TOTAL_IMPUESTO_CODIGO_PORCENTAJE, total.rateCode)
             out.optionalAmount(DESCUENTO_ADICIONAL, total.additionalDiscount)
-            out.amount(BASE_IMPONIBLE, total.taxableBase)
-            out.optionalRate(TARIFA, total.rate)
-            out.amount(VALOR, total.amount)
+            out.amount(TOTAL_IMPUESTO_BASE_IMPONIBLE, total.taxableBase)
+            out.optionalRate(TOTAL_IMPUESTO_TARIFA, total.rate)
+            out.amount(TOTAL_IMPUESTO_VALOR, total.amount)
             out.optionalAmount(VALOR_DEVOLUCION_IVA, total.ivaRefundValue)
             out.close()
         }
@@ -347,14 +469,14 @@ object FacturaWriter {
     }
 
     /** One compensation block; `compensaciones` and `compensacionesReembolso` share the item type. */
-    private fun writeCompensations(out: Emission, container: E, item: E, compensations: List<Compensation>) {
+    private fun writeCompensations(out: Emission, facets: CompensationFacets, compensations: List<Compensation>) {
         if (compensations.isEmpty()) return
-        out.open(container)
+        out.open(facets.container)
         for (compensation in compensations) {
-            out.open(item)
-            out.text(CODIGO, compensation.code)
-            out.rate(TARIFA, compensation.rate)
-            out.amount(VALOR, compensation.amount)
+            out.open(facets.item)
+            out.text(facets.code, compensation.code)
+            out.rate(facets.rate, compensation.rate)
+            out.amount(facets.amount, compensation.amount)
             out.close()
         }
         out.close()
@@ -399,7 +521,7 @@ object FacturaWriter {
         for (detail in details) {
             out.openWithAttributes(
                 DET_ADICIONAL,
-                listOf(NOMBRE_ATTRIBUTE to detail.name, VALOR_ATTRIBUTE to detail.value),
+                listOf(DET_ADICIONAL_NOMBRE to detail.name, DET_ADICIONAL_VALOR to detail.value),
             )
             out.close()
         }
@@ -410,11 +532,11 @@ object FacturaWriter {
         out.open(IMPUESTOS)
         for (tax in taxes) {
             out.open(IMPUESTO)
-            out.code(CODIGO, tax.taxCode, Catalogues.TAX)
-            out.text(CODIGO_PORCENTAJE, tax.rateCode)
-            out.rate(TARIFA, tax.rate)
-            out.amount(BASE_IMPONIBLE, tax.taxableBase)
-            out.amount(VALOR, tax.amount)
+            out.code(IMPUESTO_CODIGO, tax.taxCode, Catalogues.TAX)
+            out.text(IMPUESTO_CODIGO_PORCENTAJE, tax.rateCode)
+            out.rate(IMPUESTO_TARIFA, tax.rate)
+            out.amount(IMPUESTO_BASE_IMPONIBLE, tax.taxableBase)
+            out.amount(IMPUESTO_VALOR, tax.amount)
             out.close()
         }
         out.close()
@@ -429,14 +551,14 @@ object FacturaWriter {
             out.text(IDENTIFICACION_PROVEEDOR_REEMBOLSO, refund.providerIdentification)
             out.text(COD_PAIS_PAGO_PROVEEDOR_REEMBOLSO, refund.providerPaymentCountryCode)
             out.text(TIPO_PROVEEDOR_REEMBOLSO, refund.providerTypeCode)
-            out.text(COD_DOC_REEMBOLSO, refund.documentTypeCode)
+            out.text(REEMBOLSO_COD_DOC, refund.documentTypeCode)
             out.text(ESTAB_DOC_REEMBOLSO, refund.establishmentCode)
             out.text(PTO_EMI_DOC_REEMBOLSO, refund.emissionPointCode)
             out.text(SECUENCIAL_DOC_REEMBOLSO, refund.sequential)
             out.text(FECHA_EMISION_DOC_REEMBOLSO, refund.issueDate.format(ISSUE_DATE))
             out.text(NUMERO_AUTORIZACION_DOC_REEMB, refund.authorizationNumber)
             writeRefundTaxes(out, refund.taxes)
-            writeCompensations(out, COMPENSACIONES_REEMBOLSO, COMPENSACION_REEMBOLSO, refund.compensations)
+            writeCompensations(out, REFUND_COMPENSATIONS, refund.compensations)
             out.close()
         }
         out.close()
@@ -446,9 +568,9 @@ object FacturaWriter {
         out.open(DETALLE_IMPUESTOS)
         for (tax in taxes) {
             out.open(DETALLE_IMPUESTO)
-            out.code(CODIGO, tax.taxCode, Catalogues.TAX)
-            out.text(CODIGO_PORCENTAJE, tax.rateCode)
-            out.rate(TARIFA, tax.rate)
+            out.code(DETALLE_IMPUESTO_CODIGO, tax.taxCode, Catalogues.TAX)
+            out.text(DETALLE_IMPUESTO_CODIGO_PORCENTAJE, tax.rateCode)
+            out.rate(DETALLE_IMPUESTO_TARIFA, tax.rate)
             out.amount(BASE_IMPONIBLE_REEMBOLSO, tax.taxableBase)
             out.amount(IMPUESTO_REEMBOLSO, tax.amount)
             out.close()
@@ -461,10 +583,10 @@ object FacturaWriter {
         out.open(RETENCIONES)
         for (withholding in withholdings) {
             out.open(RETENCION)
-            out.text(CODIGO, withholding.code)
-            out.text(CODIGO_PORCENTAJE, withholding.rateCode)
-            out.rate(TARIFA, withholding.rate)
-            out.amount(VALOR, withholding.amount)
+            out.text(RETENCION_CODIGO, withholding.code)
+            out.text(RETENCION_CODIGO_PORCENTAJE, withholding.rateCode)
+            out.rate(RETENCION_TARIFA, withholding.rate)
+            out.amount(RETENCION_VALOR, withholding.amount)
             out.close()
         }
         out.close()
@@ -494,7 +616,7 @@ object FacturaWriter {
         }
         out.open(INFO_ADICIONAL)
         for (field in fields) {
-            out.openWithAttributes(CAMPO_ADICIONAL, listOf(NOMBRE_ATTRIBUTE to field.name))
+            out.openWithAttributes(CAMPO_ADICIONAL, listOf(CAMPO_ADICIONAL_NOMBRE to field.name))
             out.text(field.value, CAMPO_ADICIONAL)
             out.close()
         }
@@ -521,12 +643,12 @@ object FacturaWriter {
             if (error == null) error = reason
         }
 
-        fun open(element: E, attributes: Map<String, String> = emptyMap()) {
+        fun open(element: Facet, attributes: Map<String, String> = emptyMap()) {
             xml.open(element.name, attributes)
         }
 
         /** Opens [element] with validated attributes, each judged exactly as an element's text is. */
-        fun openWithAttributes(element: E, attributes: List<Pair<E, String>>) {
+        fun openWithAttributes(element: Facet, attributes: List<Pair<Facet, String>>) {
             val checked = LinkedHashMap<String, String>()
             for ((attribute, value) in attributes) {
                 if (check(attribute, value)) checked[attribute.name] = value
@@ -546,24 +668,24 @@ object FacturaWriter {
         fun document(): CanonicalDocument = xml.document(prolog = true)
 
         /** A required element: it must be present and must carry content. */
-        fun text(element: E, value: String) {
+        fun text(element: Facet, value: String) {
             if (!check(element, value)) return
             xml.open(element.name).text(value).close()
         }
 
         /** Text content judged against [element]'s facets but written into the already-open element. */
-        fun text(value: String, element: E) {
+        fun text(value: String, element: Facet) {
             if (!check(element, value)) return
             xml.text(value)
         }
 
         /** An optional element: absent when `null`, and never written empty. */
-        fun optional(element: E, value: String?) {
+        fun optional(element: Facet, value: String?) {
             if (value == null) return
             text(element, value)
         }
 
-        fun code(element: E, value: String, catalogue: Set<String>) {
+        fun code(element: Facet, value: String, catalogue: Set<String>) {
             if (!check(element, value)) return
             if (value !in catalogue) {
                 fail(FacturaError.CodeOutsideCatalogue(element.name, value, catalogue))
@@ -572,38 +694,39 @@ object FacturaWriter {
             xml.open(element.name).text(value).close()
         }
 
-        fun amount(element: E, value: BigDecimal) = text(element, Money.amount(value))
+        fun amount(element: Facet, value: BigDecimal) = text(element, Money.amount(value))
 
-        fun optionalAmount(element: E, value: BigDecimal?) {
+        fun optionalAmount(element: Facet, value: BigDecimal?) {
             if (value == null) return
             amount(element, value)
         }
 
-        fun rate(element: E, value: BigDecimal) = text(element, Money.rate(value))
+        fun rate(element: Facet, value: BigDecimal) = text(element, Money.rate(value))
 
-        fun optionalRate(element: E, value: BigDecimal?) {
+        fun optionalRate(element: Facet, value: BigDecimal?) {
             if (value == null) return
             rate(element, value)
         }
 
-        fun quantity(element: E, value: BigDecimal) = text(element, Money.quantity(value))
+        fun quantity(element: Facet, value: BigDecimal) = text(element, Money.quantity(value))
 
-        fun unitPrice(element: E, value: BigDecimal) = text(element, Money.unitPrice(value))
+        fun unitPrice(element: Facet, value: BigDecimal) = text(element, Money.unitPrice(value))
 
-        fun optionalUnitPrice(element: E, value: BigDecimal?) {
+        fun optionalUnitPrice(element: Facet, value: BigDecimal?) {
             if (value == null) return
             unitPrice(element, value)
         }
 
         /** Whether [value] may be written for [element]; records the first reason it may not. */
-        private fun check(element: E, value: String): Boolean {
+        private fun check(element: Facet, value: String): Boolean {
             if (error != null) return false
             if (value.isBlank()) {
                 fail(FacturaError.BlankField(element.name))
                 return false
             }
-            if (value.length > element.maxLength) {
-                fail(FacturaError.FieldTooLong(element.name, element.maxLength, value.length))
+            val bound = element.maxLength ?: element.guardLength
+            if (bound != null && value.length > bound) {
+                fail(FacturaError.FieldTooLong(element.name, bound, value.length))
                 return false
             }
             if (!CanonicalEmitter.isLegalXmlText(value)) {
