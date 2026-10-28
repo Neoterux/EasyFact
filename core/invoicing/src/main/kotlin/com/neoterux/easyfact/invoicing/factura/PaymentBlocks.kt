@@ -66,7 +66,10 @@ data class Refund(
     val issueDate: LocalDate,
     /** `numeroautorizacionDocReemb` */
     val authorizationNumber: String,
-    /** `detalleImpuestos` / `detalleImpuesto` */
+    /**
+     * `detalleImpuestos` / `detalleImpuesto`; at least one. An empty list is refused with
+     * [FacturaError.EmptyCollection].
+     */
     val taxes: List<RefundTax>,
     /** `compensacionesReembolso`; the element is absent when this is empty. */
     val compensations: List<Compensation> = emptyList(),

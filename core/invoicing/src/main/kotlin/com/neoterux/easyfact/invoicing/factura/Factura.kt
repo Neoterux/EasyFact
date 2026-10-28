@@ -44,7 +44,7 @@ import java.time.LocalDate
 data class Factura(
     val taxInfo: TaxInfo,
     val invoiceInfo: InvoiceInfo,
-    /** `detalles`; at least one `detalle`. */
+    /** `detalles`; at least one `detalle`. An empty list is refused with [FacturaError.EmptyCollection]. */
     val lines: List<InvoiceLine>,
     /** `reembolsos`; the element is absent when this is empty. */
     val refunds: List<Refund> = emptyList(),
@@ -126,7 +126,7 @@ data class InvoiceInfo(
     val totalDiscount: BigDecimal,
     /** `codDocReembolso` and the three reimbursement totals; all four omitted when `null`. */
     val refundTotals: RefundTotals? = null,
-    /** `totalConImpuestos` */
+    /** `totalConImpuestos`; at least one `totalImpuesto`. An empty list is refused with [FacturaError.EmptyCollection]. */
     val taxTotals: List<TaxTotal>,
     /** `compensaciones`; the element is absent when this is empty. */
     val compensations: List<Compensation> = emptyList(),
@@ -146,7 +146,10 @@ data class InvoiceInfo(
     val currency: String,
     /** `placa`; omitted when `null`. */
     val licensePlate: String? = null,
-    /** `pagos`; mandatory, and must carry at least one `pago`. */
+    /**
+     * `pagos`; mandatory, and must carry at least one `pago`. An empty list is refused with
+     * [FacturaError.EmptyCollection].
+     */
     val payments: List<Payment>,
     /** `valorRetIva`; omitted when `null`. */
     val ivaWithheldValue: BigDecimal? = null,
@@ -176,6 +179,6 @@ data class InvoiceLine(
     val totalWithoutTaxes: BigDecimal,
     /** `detallesAdicionales`; the element is absent when this is empty. */
     val additionalDetails: List<LineDetailField> = emptyList(),
-    /** `impuestos` */
+    /** `impuestos`; at least one `impuesto`. An empty list is refused with [FacturaError.EmptyCollection]. */
     val taxes: List<LineTax>,
 )

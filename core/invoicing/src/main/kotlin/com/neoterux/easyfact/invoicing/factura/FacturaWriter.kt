@@ -41,7 +41,10 @@ import java.util.Locale
  *   test asserts that no markup literal appears in this file.
  * - **A conditional element is emitted with content or omitted entirely**, never emitted empty.
  *   The schema's `minLength` and pattern facets reject empty content, and an empty element is
- *   also a silent data loss at the domain boundary.
+ *   also a silent data loss at the domain boundary. Lists satisfy the rule in one of two ways: an
+ *   optional container is omitted when its list is empty, and a container the schema requires, or
+ *   that this writer always emits (`detalles`, `totalConImpuestos`, `pagos`, `impuestos`,
+ *   `detalleImpuestos`), is refused with [FacturaError.EmptyCollection] before it is opened.
  * - **Scale is applied at the serialization boundary** by [Money], and nowhere earlier: money has
  *   two decimals, quantities and unit prices six, always half-up and never with an exponent. The
  *   date pattern is pinned to [Locale.ROOT] for the same reason.
@@ -566,6 +569,7 @@ object FacturaWriter {
     }
 
     private fun writeTaxTotals(out: Emission, totals: List<TaxTotal>) {
+        if (!out.nonEmpty(TOTAL_CON_IMPUESTOS, totals)) return
         out.open(TOTAL_CON_IMPUESTOS)
         for (total in totals) {
             out.open(TOTAL_IMPUESTO)
@@ -596,6 +600,7 @@ object FacturaWriter {
     }
 
     private fun writePayments(out: Emission, payments: List<Payment>) {
+        if (!out.nonEmpty(PAGOS, payments)) return
         out.open(PAGOS)
         for (payment in payments) {
             out.open(PAGO)
@@ -648,6 +653,7 @@ object FacturaWriter {
     }
 
     private fun writeLineTaxes(out: Emission, taxes: List<LineTax>) {
+        if (!out.nonEmpty(IMPUESTOS, taxes)) return
         out.open(IMPUESTOS)
         for (tax in taxes) {
             out.open(IMPUESTO)
@@ -684,6 +690,7 @@ object FacturaWriter {
     }
 
     private fun writeRefundTaxes(out: Emission, taxes: List<RefundTax>) {
+        if (!out.nonEmpty(DETALLE_IMPUESTOS, taxes)) return
         out.open(DETALLE_IMPUESTOS)
         for (tax in taxes) {
             out.open(DETALLE_IMPUESTO)
