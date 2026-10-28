@@ -32,6 +32,7 @@ import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.SecureRandom
 import java.security.Security
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
@@ -94,12 +95,17 @@ object SyntheticCertificates {
     /**
      * A new RSA-2048 key pair with a self-signed certificate valid from [notBefore] to [notAfter].
      * Serial numbers are fixed per [shape], not random, so a regenerated fixture is diffable.
+     *
+     * [random] defaults to the platform's secure generator. A caller that needs the same identity
+     * on every run (a golden-byte fixture whose expected output must be reproducible) passes a
+     * seeded generator; such a key is derivable from its seed and must never protect anything.
      */
     fun rsa2048(
         shape: IssuerShape = IssuerShape.PLAIN,
         notBefore: Instant,
         notAfter: Instant,
-    ): SyntheticIdentity = rsa(RSA_KEY_BITS, shape, notBefore, notAfter)
+        random: SecureRandom? = null,
+    ): SyntheticIdentity = rsa(RSA_KEY_BITS, shape, notBefore, notAfter, random)
 
     /**
      * Like [rsa2048], with the modulus size chosen by the caller. It exists so a test can prove that
@@ -110,8 +116,11 @@ object SyntheticCertificates {
         shape: IssuerShape = IssuerShape.PLAIN,
         notBefore: Instant,
         notAfter: Instant,
+        random: SecureRandom? = null,
     ): SyntheticIdentity {
-        val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(keyBits) }.generateKeyPair()
+        val generator = KeyPairGenerator.getInstance("RSA")
+        if (random == null) generator.initialize(keyBits) else generator.initialize(keyBits, random)
+        val keyPair = generator.generateKeyPair()
         return selfSigned(keyPair, "SHA256withRSA", shape, notBefore, notAfter)
     }
 

@@ -62,5 +62,11 @@ dependencies {
     // on every shipping classpath.
     implementation(libs.bcpkix)
     implementation(libs.bcprov)
+    // `GoldenAssetGenerator` signs with the real signer so the device test has JVM output to compare
+    // against. `compileOnly` keeps `:core:invoicing` out of this module's own runtime classpath (the
+    // dependency-policy profile allows no project dependency here, and `:core:invoicing` already
+    // depends on this module in test scope); the generator's runtime classpath is assembled by the
+    // `:app` generator configuration, which carries both modules.
+    compileOnly(project(":core:invoicing"))
     testImplementation(libs.junit)
 }

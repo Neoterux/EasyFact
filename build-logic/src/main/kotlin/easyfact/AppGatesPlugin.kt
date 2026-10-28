@@ -23,6 +23,7 @@ import com.android.build.api.variant.ApplicationVariant
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.attributes.Usage
 import org.gradle.api.tasks.TaskProvider
 
 /**
@@ -48,6 +49,8 @@ class AppGatesPlugin : Plugin<Project> {
                 dependsOn("checkReleaseSize", "verifyKeepRules", "verifyReleaseUrlHosts")
             }
 
+            val goldenAssets = registerGoldenAssetGenerator(project)
+
             val components = project.extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
 
             // No build-type selector: every variant the project defines gets its own backup gate.
@@ -55,6 +58,13 @@ class AppGatesPlugin : Plugin<Project> {
                 registerBackupRulesGate(project, variant)
                 registerManifestPolicyGate(project, variant)
                 addToDependencyPolicyGate(dependencyPolicy, variant)
+
+                // The assets go to the instrumented-test component only, never to the application
+                // variant, so minted key material cannot reach an app artifact. Only a variant with
+                // device tests enabled (debug, by default) has one. Measured on AGP 9.4.1: this route
+                // delivers the directory into the androidTest APK's `assets/`.
+                variant.deviceTests[DEVICE_TEST_COMPONENT]?.sources?.assets
+                    ?.addGeneratedSourceDirectory(goldenAssets, GenerateGoldenSigningAssetsTask::outputDir)
             }
 
             components.onVariants(components.selector().withBuildType("release")) { variant ->
@@ -72,6 +82,32 @@ class AppGatesPlugin : Plugin<Project> {
                 registerSizeGates(project, variant)
                 registerUrlHostGate(project, variant)
             }
+        }
+    }
+
+    /**
+     * `generateGoldenSigningAssets` mints the on-device golden-byte test's PKCS#12 stores and expected
+     * signed documents (D-23). The generator runs on its own resolvable configuration that carries
+     * `:core:testing` (with BouncyCastle) and `:core:invoicing`. That configuration is deliberately
+     * neither `implementation` nor `androidTestImplementation`, so it feeds the forked generator JVM and
+     * nothing else; `verifyDependencyPolicy` denies `:core:testing` and BouncyCastle on every runtime
+     * classpath and is the backstop, not the design.
+     */
+    private fun registerGoldenAssetGenerator(project: Project): TaskProvider<GenerateGoldenSigningAssetsTask> {
+        val generator = project.configurations.create("goldenAssetGenerator") {
+            description = "Classpath of the golden signing asset generator; never a runtime classpath."
+            isCanBeConsumed = false
+            isCanBeResolved = true
+            attributes.attribute(Usage.USAGE_ATTRIBUTE, project.objects.named(Usage::class.java, Usage.JAVA_RUNTIME))
+        }
+        project.dependencies.add(generator.name, project.dependencies.project(":core:testing"))
+        project.dependencies.add(generator.name, project.dependencies.project(":core:invoicing"))
+        return project.tasks.register("generateGoldenSigningAssets", GenerateGoldenSigningAssetsTask::class.java) {
+            group = "verification"
+            description = "Mints the golden-byte test's PKCS#12 stores and JVM-signed expected documents into build/."
+            generatorClasspath.from(generator)
+            mainClass.set("com.neoterux.easyfact.testing.GoldenAssetGenerator")
+            outputDir.set(project.layout.buildDirectory.dir("generated/goldenSigningAssets"))
         }
     }
 
@@ -206,6 +242,8 @@ class AppGatesPlugin : Plugin<Project> {
     }
 
     private companion object {
+        /** The key of the instrumented-test component in `ApplicationVariant.deviceTests`. */
+        const val DEVICE_TEST_COMPONENT = "AndroidTest"
         const val BASELINE_FILE_NAME = "size-baseline.properties"
         const val SIZE_TOLERANCE_BYTES = 1024L
 
