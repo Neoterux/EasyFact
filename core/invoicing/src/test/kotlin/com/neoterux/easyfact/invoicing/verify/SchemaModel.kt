@@ -83,8 +83,9 @@ data class SchemaNode(
  *
  * **What it ignores on purpose.** `xsd:annotation` (documentation only) and `xsd:import` (the
  * `ds:` namespace is imported but no `ds:` component is referenced from `factura`; [XsdGate] asserts
- * that the unresolved import is the only schema warning). Named types that `factura` never reaches
- * are not read either, so an unreachable construct cannot make the reader fail.
+ * that the unresolved import is the only schema warning). Named simple and complex types that
+ * `factura` never reaches are indexed but not read, so an unreachable facet cannot make the reader
+ * fail; a top-level declaration of a kind it does not understand (a group, say) is refused.
  *
  * **What it refuses.** Anything else throws [IllegalStateException] naming the path: `xsd:group`,
  * `xsd:attributeGroup`, `xsd:all`, `xsd:any`, an element or attribute `ref`, `xsd:union`, `xsd:list`,
@@ -198,8 +199,8 @@ object SchemaModel {
 
         private fun element(node: Element, parentPath: String?, occurrenceOverride: Int?) {
             val name = node.getAttribute("name")
+            if (node.hasAttribute("ref")) unsupported(parentPath ?: "schema", "an element ref")
             val here = if (parentPath == null) name else "$parentPath/$name"
-            if (node.hasAttribute("ref")) unsupported(here.ifEmpty { "schema" }, "an element ref")
             check(name.isNotEmpty()) { "${parentPath ?: "schema"}: an element without a name" }
             val minOccurs = occurrenceOverride ?: occurs(node, "minOccurs", here) ?: 1
             val maxOccurs = if (node.getAttribute("maxOccurs") == "unbounded") null else occurs(node, "maxOccurs", here) ?: 1
