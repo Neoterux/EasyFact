@@ -18,6 +18,7 @@
 package com.neoterux.easyfact.invoicing.signing
 
 import com.neoterux.easyfact.invoicing.result.Outcome
+import java.security.MessageDigest
 
 /**
  * The exact octets that were signed and that must be transmitted.
@@ -45,7 +46,7 @@ class SignedDocument private constructor(private val bytes: ByteArray) {
      * The SHA-256 of the signed octets, for the caller that stores the bytes to record at the
      * same moment it stores them. [Companion.fromStoredOctets] requires it back.
      */
-    fun sha256(): ByteArray = TODO("RED: the digest is not implemented yet")
+    fun sha256(): ByteArray = MessageDigest.getInstance(DIGEST_ALGORITHM).digest(bytes)
 
     /** Never renders the content, which carries customer data and a certificate. */
     override fun toString(): String = "SignedDocument(${bytes.size} bytes)"
@@ -70,6 +71,22 @@ class SignedDocument private constructor(private val bytes: ByteArray) {
         fun fromStoredOctets(
             octets: ByteArray,
             expectedSha256: ByteArray,
-        ): Outcome<SignedDocument, RehydrationError> = TODO("RED: rehydration is not implemented yet")
+        ): Outcome<SignedDocument, RehydrationError> {
+            // Checked before the digest, because SHA-256 of an empty array is a perfectly valid
+            // digest: a caller that stored nothing and recorded the digest of nothing would
+            // otherwise be handed a zero-byte document the submission path would trust.
+            if (octets.isEmpty()) return Outcome.Err(RehydrationError.EmptyOctets)
+
+            val actual = MessageDigest.getInstance(DIGEST_ALGORITHM).digest(octets)
+            // MessageDigest.isEqual, not contentEquals: it is the constant-time comparison, and
+            // it also tolerates a digest of the wrong length instead of throwing (T-02-17).
+            if (!MessageDigest.isEqual(actual, expectedSha256)) {
+                return Outcome.Err(RehydrationError.DigestMismatch)
+            }
+            // wrap copies, so a later write by the caller cannot reach the document.
+            return Outcome.Ok(wrap(octets))
+        }
+
+        private const val DIGEST_ALGORITHM = "SHA-256"
     }
 }
