@@ -18,6 +18,13 @@
 package com.neoterux.easyfact.invoicing.xml
 
 /**
+ * Thrown when an element or attribute name begins with `xml` in any case, which covers `xmlns` and
+ * every `xmlns:` declaration. A programming error, like the other misuse the emitter rejects; it is
+ * a distinct type so a caller can tell it from a malformed name.
+ */
+class ReservedXmlNameException(name: String) : IllegalArgumentException("reserved XML name: '$name'")
+
+/**
  * Writes XML that is already in inclusive canonical form (`REC-xml-c14n-20010315`), so that
  * canonicalization is the identity transform on the bytes and a signature can be computed over
  * exactly what is later transmitted.
@@ -33,6 +40,11 @@ package com.neoterux.easyfact.invoicing.xml
  *   `&quot;` `&#x9;` `&#xA;` and `&#xD;`;
  * - emits non-ASCII characters raw and encodes to UTF-8 exactly once, in [document].
  *
+ * Namespace declarations are never ordinary attributes here. Inclusive C14N orders them before
+ * every other attribute, and this emitter sorts all attributes by name, so an `xmlns` written as an
+ * attribute would land in a non-canonical position. Every name beginning with `xml` in any case,
+ * which covers `xmlns` and each `xmlns:` declaration, is refused with [ReservedXmlNameException].
+ *
  * Only un-prefixed element and attribute names are accepted. Canonical order for prefixed
  * attributes depends on namespace URIs, and the factura vocabulary has none, so a colon is
  * rejected rather than silently written in an order that may not be canonical. The signature's
@@ -43,7 +55,7 @@ package com.neoterux.easyfact.invoicing.xml
  *
  * Misuse (text outside an element, an unbalanced close, a second root) throws
  * [IllegalStateException]; a name or character that XML 1.0 does not allow throws
- * [IllegalArgumentException]. Both are programming errors in the typed layer above. User-entered
+ * [IllegalArgumentException], and a reserved `xml` name its subclass [ReservedXmlNameException]. Both are programming errors in the typed layer above. User-entered
  * text should be checked with [isLegalXmlText] before it reaches the emitter.
  */
 class CanonicalEmitter {
@@ -98,6 +110,9 @@ class CanonicalEmitter {
     }
 
     private fun requireName(name: String) {
+        if (name.length >= RESERVED_PREFIX.length && name.regionMatches(0, RESERVED_PREFIX, 0, RESERVED_PREFIX.length, ignoreCase = true)) {
+            throw ReservedXmlNameException(name)
+        }
         require(name.isNotEmpty() && name[0] in NAME_START && name.all { it in NAME_START || it in '0'..'9' || it == '-' || it == '.' }) {
             "not an un-prefixed XML name: '$name'"
         }
@@ -108,6 +123,7 @@ class CanonicalEmitter {
     }
 
     companion object {
+        private const val RESERVED_PREFIX = "xml"
         private const val DECLARATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
         private val NAME_START = ('A'..'Z') + ('a'..'z') + '_'
 

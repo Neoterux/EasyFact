@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.xml
 
+import com.neoterux.easyfact.invoicing.verify.C14nIdentityOracle
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -107,6 +108,36 @@ class CanonicalEmitterTest {
         assertThrows(IllegalArgumentException::class.java) { CanonicalEmitter().open("ds:Signature") }
         assertThrows(IllegalArgumentException::class.java) { CanonicalEmitter().open("a", mapOf("xmlns:ds" to "x")) }
         assertThrows(IllegalArgumentException::class.java) { CanonicalEmitter().open("1a") }
+    }
+
+    @Test
+    fun namesBeginningWithXmlInAnyCaseAreReservedAndRefused() {
+        assertThrows(ReservedXmlNameException::class.java) { CanonicalEmitter().open("a", mapOf("xmlns" to "urn:x")) }
+        assertThrows(ReservedXmlNameException::class.java) { CanonicalEmitter().open("a", mapOf("XMLNS" to "urn:x")) }
+        assertThrows(ReservedXmlNameException::class.java) { CanonicalEmitter().open("a", mapOf("xmlns:ds" to "urn:x")) }
+        assertThrows(ReservedXmlNameException::class.java) { CanonicalEmitter().open("xmlFoo") }
+    }
+
+    @Test
+    fun theReservedNameFailureIsAnIllegalArgumentAndNamesTheRejectedName() {
+        val failure = assertThrows(ReservedXmlNameException::class.java) { CanonicalEmitter().open("a", mapOf("xmlns" to "urn:x")) }
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure.message!!.contains("xmlns"))
+    }
+
+    @Test
+    fun anAttributeNamedIdStillWorks() {
+        assertEquals("<a id=\"1\"></a>", root { open("a", mapOf("id" to "1")).close() })
+    }
+
+    @Test
+    fun aNamespaceDeclarationWrittenAsAnOrdinaryAttributeWouldNotHaveBeenCanonical() {
+        // What the emitter wrote before xml-prefixed names were refused: attributes sorted by name,
+        // so `xmlns` landed after `id`. Inclusive C14N puts namespace declarations first.
+        val before = "<a id=\"1\" xmlns=\"urn:x\"></a>".toByteArray(Charsets.UTF_8)
+        val canonical = C14nIdentityOracle.canonicalize(before)
+        assertEquals("<a xmlns=\"urn:x\" id=\"1\"></a>", String(canonical, Charsets.UTF_8))
+        assertTrue("the old output was not a C14N identity", !before.contentEquals(canonical))
     }
 
     @Test
