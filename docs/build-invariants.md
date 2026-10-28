@@ -23,13 +23,13 @@ The first two are run by `.github/workflows/check.yml`. The release gates are of
 too slow for the edit loop.
 
 `verifyDeviceMatrix` is the second named exception to "every gate attaches to
-`check`" (the owner's decision in plan 02-08; the first is `verifyRelease`). Three
+`check`" (an owner decision; the first is `verifyRelease`). Three
 emulators cost minutes and gigabytes of system images, and the workflow has never
 run, so adding them there would put an unproven job in front of an unproven
 workflow. The price of the exception is that a gate off `check` can be forgotten:
 run it whenever `:core:invoicing` signing code, `:core:testing`'s certificate minting,
 or the PKCS#12 handling changes. A CI job for it, triggered manually, is the intended
-next step once the base workflow has run once. See "Device matrix: `verifyDeviceMatrix`" below.
+next step once the base workflow has run once. See section 14 below.
 
 The whole build runs with the Gradle configuration cache enabled and
 `--configuration-cache-problems=fail` (`gradle.properties`, AGENTS.md section
@@ -43,14 +43,14 @@ The Gradle build needs a JDK 25: `gradle/gradle-daemon-jvm.properties` pins
 Compilation of the JVM modules is pinned separately to the JDK 17 API level
 (next section), so the daemon JDK and the API level are different things.
 
-Status when this page was written, at the end of Phase 1 (2026-10-26): the
+Status when this page was first written (2026-10-26): the
 workflow had never run on GitHub Actions. Every command in it was run locally,
 but the workflow file itself is unexercised until its first push, and that first
 run is also the first measurement of the release-size tolerance on a machine other
 than the one that recorded the baseline (section 6).
 
 This page was last re-read, section by section, against `build-logic` at commit
-`93effbe`. To check whether it is still current, run:
+`418d4dd`. To check whether it is still current, run:
 
 ```bash
 git log -1 --format=%h -- build-logic
@@ -58,8 +58,9 @@ git log -1 --format=%h -- build-logic
 
 If that prints a different hash, a gate has changed since the page was read and
 the page has not been read against the current gates. The statements in section 5
-about what the keep-rule gate misses are measurements taken at that commit, not
-claims inherited from elsewhere.
+about what the keep-rule gate misses were measured at `93effbe`; the keep-rule gate's
+files are unchanged between that commit and `418d4dd`, so the measurements still
+apply. They are measurements, not claims inherited from elsewhere.
 
 Every gate has the same shape, which is also the rule for adding one (see
 "Canary drills" below): a pure Kotlin policy in the included `build-logic`
@@ -349,6 +350,24 @@ itself phones home passes. It reads the resolved dependency graph, so it cannot
 see native libraries, vendored source, jars copied into the build, or code
 reached by reflection. See "The no-telemetry invariant is a blocklist" below.
 
+**Per-module profiles.** The JVM modules are judged by a profile chosen from the
+project path (`DependencyPolicy.profileFor`). `:core:testing` is the only module
+with its own profile: it may carry BouncyCastle (`bcpkix-jdk18on`,
+`bcprov-jdk18on`), which mints its synthetic certificates. Its denied list is
+derived from the shipping denylist by removing BouncyCastle, never re-typed, so a
+future denylist entry is inherited automatically. Every other JVM module gets the
+plain profile: the Kotlin standard library and no project dependency. The gate
+scans `runtimeClasspath` only and deliberately not `testRuntimeClasspath`, which
+is why xades4j can be a `testImplementation` dependency of `:core:invoicing`
+without a policy change. The flip side is that this gate says nothing about
+test-scope dependencies: their review happens when they are added (the table at
+the end of this page), not here.
+
+**Animal Sniffer on `:core:testing`.** The API 31 membership check (section 3)
+runs on `:core:testing`'s main source as well, with BouncyCastle on its classpath,
+and needed no ignore entry. That module never runs on a device, and the dependency
+policy keeps it off every shipping classpath.
+
 ## 9. Merged-manifest policy: `verify<Variant>ManifestPolicy`
 
 Concrete tasks today: `verifyDebugManifestPolicy` and `verifyReleaseManifestPolicy`.
@@ -395,7 +414,108 @@ showed both). It also cannot see reflection, a WebView, a native library, or an
 allowlisted library that itself phones home. The scan is a byte-level search for
 URL-shaped strings, not a dex parse and not a network monitor.
 
-## Device matrix: `verifyDeviceMatrix`
+## 11. Privacy scan: `verifyPrivacyScan`
+
+**What it enforces.** No git-tracked text file carries an identifier-shaped
+string outside the synthetic allowlist. The shapes are a bounded 13-digit run
+(RUC), a bounded 10-digit run (cédula), a bounded 49-digit run (access key), a
+PEM `BEGIN` marker, a base64 run that starts like a DER-encoded PKCS#12, and an
+email address. The allowlist holds one placeholder RUC and the `example.com`
+domain. The placeholder must be structurally impossible as a real identifier: its
+ten-digit base has to be one repeated digit, and the gate refuses an allowlist
+entry that is not. A violation names the rule, the path and the line, never the
+matched text, because a build log is itself a publication channel.
+
+**Command.** `./gradlew verifyPrivacyScan` (reached by `check`).
+
+**Where the logic lives.** `build-logic/src/main/kotlin/easyfact/PrivacyScan.kt`
+(rules, allowlist and the residual-gap statement), `VerifyPrivacyScanTask.kt`
+(reads the file list from `git ls-files -z`, never from a directory walk, and
+fails if that list is empty), `RepoGatesPlugin.kt`; failing fixtures in
+`PrivacyScanTest.kt`. Binary files are skipped by extension (`jar`, `webp`,
+`png`, `pdf`, `zip`, `keystore`) and every run prints how many it scanned and how
+many it skipped.
+
+**What it cannot see.** In the gate's own words, printed on every run:
+"RESIDUAL GAP: this scan matches the shape of an identifier in git-tracked text files, and nothing else. It cannot see a value split across lines or concatenated at runtime, an identifier encoded in base64 or held inside a binary file (binary files are skipped and counted), a real name or address (which have no shape), anything in an untracked file, or anything committed to git history before this gate existed. A green run is not proof that nothing private is published; review remains the control for what a shape cannot express."
+A new file is not scanned until it is staged, because an untracked file is not in
+`git ls-files`.
+
+## 12. Schema gate: `XsdGate` in `:core:invoicing:test`
+
+**What it enforces.** The document the writer produces, before signing, is valid
+against the SRI's published `factura` 1.1.0 schema. Every error is collected,
+not just the first. Three committed mutations of the writer's own output must fail
+it, each with the expected schema error: swapped `ambiente` and `tipoEmision`, a
+missing `ruc`, and a 48-digit access key.
+
+**Command.** `./gradlew :core:invoicing:test` (reached by `check`); the tests are
+`XsdGateTest`.
+
+**Where the logic lives.** `core/invoicing/src/test/kotlin/.../verify/XsdGate.kt`.
+The schema is vendored as
+`core/invoicing/src/test/resources/xsd/factura_V1.1.0.xsd`, and its source,
+retrieval date and SHA-256 are recorded beside it in `SCHEMA-PROVENANCE.md`. It
+loads offline through a classpath resolver: external DTD access is disabled,
+external schema access is limited to local files, and the parser refuses
+`DOCTYPE`.
+
+**Why the unsigned document.** The vendored revision declares no `ds:Signature`
+inside `<factura>`, so a signed document can never be valid against it. A test
+records that. The gate therefore validates the unsigned document, and the
+signature is covered by the verifiers in section 13. The schema imports the W3C
+XML-DSig schema without using any of its components. That file is not vendored,
+and a test asserts that the unresolved import is the only warning, so a future
+schema that starts using `ds:` fails loudly instead of validating less.
+
+**What it cannot see.** Schema validity is necessary, not sufficient. It cannot
+see whether the SRI will accept the document: business rules (totals, codes
+against the tax catalogue, dates, the sequential) are not in the schema, and no
+document from this project has been submitted. It cannot see the signature, and
+it checks the vendored revision only: another published revision of the same file
+does declare the signature element, and which one the SRI validates against is
+an open question. Several fields the schema restricts to fixed values (the RIMPE
+legend, the withholding code) are free text in the writer, so the gate catches a
+wrong value only in a test document, never in user input. Redistribution
+licensing of the vendored schema is unresolved and must be settled before the
+first public release.
+
+## 13. Signature verifiers in `:core:invoicing:test`
+
+**What it enforces.** Signature output is checked by two verifiers that share no
+code with the signer. The JDK's XML-DSig implementation (JSR-105) proves the
+XML-DSig layer: the three references, the digests and the RSA signature. xades4j
+proves the XAdES layer: it reports the document as XAdES-BES, which needs the
+`QualifyingProperties` and the signing-certificate binding. One tamper matrix
+drives both, so a mutation that one verifier misses and the other catches is
+visible. With `etsi:SigningCertificate` removed, JSR-105 still accepts and xades4j
+rejects, which is why both exist. A byte-identity test asserts that the
+transmitted payload is the signed octets, with a re-serializing transport as its
+committed failing fixture.
+
+**Command.** `./gradlew :core:invoicing:test` (reached by `check`).
+
+**Where the logic lives.** `core/invoicing/src/test/kotlin/.../verify/`
+(`Jsr105Verifier.kt`, `Xades4jVerifier.kt`, `TamperMatrixTest.kt`) and
+`.../transport/ByteIdentityTest.kt`. xades4j is `testImplementation` only (see
+section 8); `javax.xml.crypto` is absent from Android, which is why this oracle
+can live only in test source.
+
+**The relaxation.** The JSR-105 verifier runs with
+`org.jcp.xml.dsig.secureValidation` set to `false`, because the SRI mandates
+`rsa-sha1` and the JDK's secure validation rejects it. The relaxation is confined
+to that test-source verifier. Nothing in main source sets it.
+
+**What it cannot see.** Both verifiers accept what the XML-DSig and XAdES
+specifications accept. Neither is the SRI's verifier, so neither proves that the
+SRI accepts the signature: certificate-dependent failures (the issuer-name
+rendering, key usage, the RUC inside a real certificate, chain and OCSP checks)
+need a real certificate against the test environment (see "Manual-only
+verifications"). The certificates used are synthetic and self-issued. The
+xades4j licence (LGPL, version undeclared in its POM) against this project's
+GPLv3 is an open question.
+
+## 14. Device matrix: `verifyDeviceMatrix`
 
 **What it enforces.** The golden-byte test (`app/src/androidTest/.../GoldenBytesSigningTest.kt`)
 passes on an API 31, an API 34 and an API 37 emulator: each loads a freshly minted PKCS#12 with
@@ -453,7 +573,7 @@ matrix declares only API 31, 34 and 37, so this assumption is not exercised by d
 **What the limitation means for the app.** A `.p12` re-exported with a current tool can use the
 AES encoding, and an API 31 device cannot open it, whatever the password. Handling a PKCS#12 the
 device cannot open (rejecting it with a plain-language message, or re-encoding it) belongs to the
-certificate import (Phase 4), not to this matrix, which only records and asserts the platform's behaviour.
+certificate import, not to this matrix, which only records and asserts the platform's behaviour.
 
 **What it cannot see.** It proves byte equality for six synthetic certificates on three emulators on an
 Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing
@@ -503,7 +623,7 @@ proven on the strength of these gates.
 
 ## Manual-only verifications
 
-These four are not covered by CI and must not be mistaken for things it covers.
+These five are not covered by CI and must not be mistaken for things it covers.
 
 | Behaviour | Why it is manual |
 | --- | --- |
@@ -511,6 +631,7 @@ These four are not covered by CI and must not be mistaken for things it covers.
 | Device-to-device transfer excludes app data | UNVERIFIED, see above. No known proof exists. |
 | No egress to a non-allowlisted host at runtime | A blocklist is not a proof; needs a traffic capture on a real device during a full issue flow, before the production-release gate. |
 | Legitimacy of the two Animal Sniffer Maven coordinates | The package-legitimacy tooling covers npm, PyPI and crates, not Maven. The coordinates and their licences were checked against Maven Central and the published POMs by an automated session, not by a maintainer, so a maintainer should re-audit them. The signature data provenance (section 3) is separate and still open. |
+| The SRI accepts this project's signature | Needs the repository owner's real certificate and a submission to the `celcer` test environment. It cannot be automated and must never run in CI. The probe (`CelcerProbeTest`) is inert unless configured to point at a file outside the tree. It has not been run; its status and the element set it will submit are recorded in `docs/sri-electronic-invoicing.md` section 6. |
 
 ## Raising the size baseline
 
@@ -540,6 +661,8 @@ happens.
 | an exported component | `verify<Variant>ManifestPolicy` | `ManifestPolicy.EXPORTED_COMPONENTS`, with a comment saying why |
 | a service | `verify<Variant>ManifestPolicy` | `ManifestPolicy.SERVICES`, and prefer not to |
 | a network host | `verifyReleaseUrlHosts` | `UrlHostScan.ALLOWED_HOSTS`, when the feature lands and not before |
+| a test-only library | nothing (test classpaths are not scanned, section 8) | the version catalog, after the same dependency review. Current test-scope entries: `com.googlecode.xades4j:xades4j:2.4.1` (`:core:invoicing` `testImplementation`, the second signature verifier) |
+| a library for `:core:testing` | `verifyDependencyPolicy` on `:core:testing` | `DependencyPolicy.TESTING_ALLOWED`. Current entries: `org.bouncycastle:bcpkix-jdk18on:1.86` and `org.bouncycastle:bcprov-jdk18on:1.86` (`implementation` of `:core:testing`, denied on every shipping classpath) |
 
 All of these files are under `build-logic/src/main/kotlin/easyfact/`. A
 denylisted group is never added to an allowlist to get a build through; the
