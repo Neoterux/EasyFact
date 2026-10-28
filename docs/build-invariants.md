@@ -474,9 +474,11 @@ against the tax catalogue, dates, the sequential) are not in the schema, and no
 document from this project has been submitted. It cannot see the signature, and
 it checks the vendored revision only: another published revision of the same file
 does declare the signature element, and which one the SRI validates against is
-an open question. Several fields the schema restricts to fixed values (the RIMPE
-legend, the withholding code) are free text in the writer, so the gate catches a
-wrong value only in a test document, never in user input. Redistribution
+an open question. The writer now enforces the schema's pattern and enumeration
+facets on every string it writes, so a wrong fixed value (the RIMPE legend, the
+withholding code) is a typed `InvalidFormat` failure at write time, before the gate
+is ever reached. The gate still matters for structure (element order and nesting),
+which the writer's facet checks do not judge. Redistribution
 licensing of the vendored schema is unresolved and must be settled before the
 first public release.
 
@@ -586,10 +588,27 @@ assets live under `app/build/`, are added to the instrumented-test APK only, and
 
 **What it enforces.** The writer copies the schema's facets by hand and never reads
 the schema, so this test is the only thing that ties the two together. Every length,
-occurrence and decimal facet in the writer's table (`maxLength`, `minLength`,
-`maxOccurs`, `totalDigits`, `fractionDigits`, `minInclusive` and the other numeric
-bounds) must equal the vendored `factura` 1.1.0 schema, and the kind of every entry
-(container, text, decimal) must agree with the schema's. Coverage holds in both
+occurrence, decimal, pattern and enumeration facet in the writer's table (`maxLength`,
+`minLength`, `maxOccurs`, `totalDigits`, `fractionDigits`, `minInclusive` and the
+other numeric bounds, `pattern` and `enumeration`) must equal the vendored `factura`
+1.1.0 schema, and the kind of every entry (container, text, decimal) must agree with
+the schema's. Pattern strings are compared byte for byte and as an ordered list, since
+several patterns on one restriction are alternatives. The writer enforces the same
+pattern and enumeration facets on every string it writes and reports a violation as
+`InvalidFormat`, which never carries the offending value. Every text element must be
+bounded by a maximum length, a pattern or an enumeration; the one named exemption is
+the `version` attribute of the root element, whose schema type is unbounded.
+
+Two further checks protect the pattern language. A regex-dialect guard fails the build
+if the schema ever uses a construct whose meaning differs between XML Schema and the
+regex engines the writer runs on (character-class escapes such as `\d`, class
+subtraction, nested or intersected classes, anchors, a dot outside a class, extended
+groups, lazy or possessive quantifiers), so a future schema revision cannot silently
+change what a pattern means. And every value of every writer catalogue (document
+types, environments, emission types, buyer identification types and tax codes) must
+satisfy its element's patterns, so a catalogue can never name a value the schema would
+then reject. A facet the schema reader does not understand makes the reader fail
+loudly rather than being half-read, which is a deliberate stop and not a pass. Coverage holds in both
 directions: a schema path with no facet fails, and a facet whose path the schema lacks
 fails, against an explicit not-modelled list. That list is empty, because every
 element and attribute of the vendored revision is modelled, and a test asserts it
@@ -605,22 +624,18 @@ writer's digit counting cannot diverge from the validator's.
 `core/invoicing/src/main/kotlin/.../factura/`. The comparison is a pure function in
 `FacturaFacetParityTest`, beside the test-source `SchemaModel` that reads the schema
 as data. The test carries committed failing fixtures (a wrong `maxLength`, `minLength`,
-`maxOccurs` and `totalDigits`, a stray guard on a decimal facet, a missing facet and a
-misspelt path), each of which the comparison must report.
+`maxOccurs` and `totalDigits`, a stray guard on a decimal facet, a missing facet, a
+misspelt path, a drifted pattern, a truncated enumeration and a reordered pattern list),
+each of which the comparison must report.
 `FacturaDecimalFacetTest` holds the boundary, rounding and ordering cases and walks a
 document carrying every element to check that each decimal is written with exactly its
 `fractionDigits`. `FacturaSchemaCoverageTest` writes the every-element document and
 validates it with the schema gate.
 
-**What it cannot see.** Pattern and enumeration facets are not yet enforced by the
-writer, so a value the schema's pattern rejects can still be written; a small
-catalogue check covers a handful of codes and nothing more. It compares the writer
-with the vendored revision only, so a different published revision is invisible to
-it. The writer mirrors the schema, not business sense: a value the schema allows but
-the business would not (a negative total discount, whose schema type states no lower
-bound) is written. And a facet the schema reader does not understand makes the
-reader fail loudly rather than being half-read, which is a deliberate stop and not
-a pass.
+**What it cannot see.** It compares the writer with the vendored revision only, so a
+different published revision is invisible to it. The writer mirrors the schema, not
+business sense: a value the schema allows but the business would not (a negative
+total discount, whose schema type states no lower bound) is written.
 
 ## Device-to-device transfer is UNVERIFIED
 
