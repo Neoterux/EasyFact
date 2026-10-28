@@ -73,6 +73,7 @@ object FacturaWriter {
 
     private const val AMOUNT_MAX = 32
     private const val TEXT_MAX = 300
+    private const val FISCAL_MACHINE_MAX = 30
     private const val MAX_ADDITIONAL_FIELDS = 15
 
     // --- factura -------------------------------------------------------------------------------
@@ -196,10 +197,14 @@ object FacturaWriter {
     private val IMPUESTOS = E("impuestos")
     private val IMPUESTO = E("impuesto")
 
-    // --- negotiable and infoAdicional ---------------------------------------------
+    // --- negotiable, fiscal machine and infoAdicional -----------------------------
 
     private val TIPO_NEGOCIABLE = E("tipoNegociable")
     private val CORREO = E("correo", TEXT_MAX)
+    private val MAQUINA_FISCAL = E("maquinaFiscal")
+    private val MARCA = E("marca", FISCAL_MACHINE_MAX)
+    private val MODELO = E("modelo", FISCAL_MACHINE_MAX)
+    private val SERIE = E("serie", FISCAL_MACHINE_MAX)
     private val INFO_ADICIONAL = E("infoAdicional")
     private val CAMPO_ADICIONAL = E("campoAdicional")
     private val NOMBRE_ATTRIBUTE = E("nombre", TEXT_MAX)
@@ -241,6 +246,7 @@ object FacturaWriter {
         writeRefunds(out, factura.refunds)
         writeWithholdings(out, factura.withholdings)
         writeNegotiable(out, factura.negotiableEmail)
+        writeFiscalMachine(out, factura.fiscalMachine)
         writeAdditionalInfo(out, factura.additionalFields)
         out.close()
         out.error?.let { return Outcome.Err(it) }
@@ -460,6 +466,15 @@ object FacturaWriter {
         if (email == null) return
         out.open(TIPO_NEGOCIABLE)
         out.text(CORREO, email)
+        out.close()
+    }
+
+    private fun writeFiscalMachine(out: Emission, machine: FiscalMachine?) {
+        if (machine == null) return
+        out.open(MAQUINA_FISCAL)
+        out.text(MARCA, machine.brand)
+        out.text(MODELO, machine.model)
+        out.text(SERIE, machine.serial)
         out.close()
     }
 

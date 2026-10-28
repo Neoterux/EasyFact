@@ -19,7 +19,7 @@ package com.neoterux.easyfact.invoicing.factura
 
 /**
  * The free-form blocks of a `factura`: `infoAdicional` / `campoAdicional`, a line's
- * `detallesAdicionales` / `detAdicional` and `tipoNegociable`.
+ * `detallesAdicionales` / `detAdicional`, `tipoNegociable` and `maquinaFiscal`.
  *
  * Type and property names are English (AGENTS.md section 2.1); the Spanish element and attribute
  * names live in [FacturaWriter] as string constants and nowhere else.
@@ -39,3 +39,16 @@ data class AdditionalField(val name: String, val value: String)
  * itself carries no text.
  */
 data class LineDetailField(val name: String, val value: String)
+
+/**
+ * The `maquinaFiscal` block: the fiscal machine the document was issued from. All three parts are
+ * mandatory within the block; the block itself is omitted when [Factura.fiscalMachine] is `null`.
+ */
+data class FiscalMachine(
+    /** `marca` */
+    val brand: String,
+    /** `modelo` */
+    val model: String,
+    /** `serie` */
+    val serial: String,
+)

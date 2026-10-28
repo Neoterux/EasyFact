@@ -51,6 +51,8 @@ data class Factura(
     val withholdings: List<Withholding> = emptyList(),
     /** `tipoNegociable` / `correo`; the block is absent when this is `null`. */
     val negotiableEmail: String? = null,
+    /** `maquinaFiscal`; the block is absent when this is `null`. */
+    val fiscalMachine: FiscalMachine? = null,
     /** `infoAdicional`; the element is absent when this is empty, and capped at fifteen entries. */
     val additionalFields: List<AdditionalField> = emptyList(),
 )
