@@ -54,7 +54,9 @@ import java.util.Locale
  *
  * **The vendored XSD is the authority, not this file.** The element order and the facets in
  * [Facet] are copied by hand from `factura_V1.1.0.xsd`; the writer never reads the schema, at run
- * time or otherwise. `FacturaFacetParityTest` reads the vendored schema in the test source set and
+ * time or otherwise. Every string it writes is checked against the schema's pattern and
+ * enumeration facets, a failure being [FacturaError.InvalidFormat], alongside the length,
+ * occurrence and decimal facets, and all of them are parity-tested. `FacturaFacetParityTest` reads the vendored schema in the test source set and
  * fails the build when any length, occurrence, decimal, pattern or enumeration facet differs from
  * the schema, when a schema path has no facet, or when a facet names a path the schema lacks.
  * Decimal facets judge the value as written, which is the value after [Money]'s half-up rounding,
