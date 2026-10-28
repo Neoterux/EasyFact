@@ -28,6 +28,14 @@ import java.util.Properties
  * never wrote, would let the device matrix "pass" against nothing. This reports every such gap as a
  * line; an empty result means the manifest and the files agree. The manifest format is written by
  * `GoldenAssetGenerator` in `:core:testing`; the keys read here are the ones the device test reads.
+ *
+ * It also refuses a rejection case that could pass vacuously (WR-08). A `REJECTS_PASSWORD` case must
+ * carry a `controlPassword` (the device opens the store with it before trying the wrong one) and an
+ * `encoding`; it may not claim to open from a lower API level than a signing case of the same encoding is
+ * measured to open from (below that level the store is refused for its encoding, so the refusal says
+ * nothing about the password); that encoding must be measured by at least one signing case; and at least
+ * one rejection case must open on every level (`opensFromApi` 0), so the minimum supported level always
+ * runs one real password rejection.
  */
 object GoldenAssetCheck {
 
@@ -66,9 +74,60 @@ object GoldenAssetCheck {
                         result += "MISSING or invalid manifest entry $case opensFromApi ('$opensFrom'): a non-negative API level is required"
                     }
                 }
-                "REJECTS_PASSWORD" -> Unit
+                "REJECTS_PASSWORD" -> {
+                    if (manifest.getProperty("$prefix.controlPassword").isNullOrBlank()) {
+                        result += "MISSING manifest entry $case controlPassword: a rejection case must open its store " +
+                            "with the correct password before the wrong one is tried"
+                    }
+                    if (manifest.getProperty("$prefix.encoding").isNullOrBlank()) {
+                        result += "MISSING manifest entry $case encoding"
+                    }
+                    val opensFrom = manifest.getProperty("$prefix.opensFromApi")
+                    if (opensFrom?.trim()?.toIntOrNull()?.let { it >= 0 } != true) {
+                        result += "MISSING or invalid manifest entry $case opensFromApi ('$opensFrom'): a non-negative API level is required"
+                    }
+                }
                 else -> result += "UNKNOWN expectation '$expect' for case $case (expected one of $EXPECTATIONS)"
             }
+        }
+        result += rejectionRules(manifest, cases)
+        return result
+    }
+
+    private class Described(val id: String, val encoding: String, val opensFromApi: Int)
+
+    /** The manifest-level rules over the rejection cases; a case whose own entries are invalid is already reported and skipped here. */
+    private fun rejectionRules(manifest: Properties, cases: List<String>): List<String> {
+        fun described(expectation: String) = cases.filter { manifest.getProperty("case.$it.expect") == expectation }.mapNotNull {
+            val encoding = manifest.getProperty("case.$it.encoding")?.trim().orEmpty()
+            val opensFrom = manifest.getProperty("case.$it.opensFromApi")?.trim()?.toIntOrNull()
+            if (encoding.isEmpty() || opensFrom == null || opensFrom < 0) null else Described(it, encoding, opensFrom)
+        }
+        val signing = described("SIGNS")
+        val rejecting = described("REJECTS_PASSWORD")
+
+        val result = ArrayList<String>()
+        for (rejection in rejecting) {
+            val measuring = signing.filter { it.encoding == rejection.encoding }
+            if (measuring.isEmpty()) {
+                result += "UNMEASURED rejection case ${rejection.id} uses encoding ${rejection.encoding}, which no signing " +
+                    "case measures: its opensFromApi has nothing to be checked against"
+                continue
+            }
+            val strictest = measuring.maxByOrNull { it.opensFromApi }!!
+            if (rejection.opensFromApi < strictest.opensFromApi) {
+                result += "VACUOUS rejection case ${rejection.id} claims to open from API ${rejection.opensFromApi}, below " +
+                    "API ${strictest.opensFromApi} where signing case ${strictest.id} of the same encoding ${rejection.encoding} " +
+                    "is measured to open: below API ${strictest.opensFromApi} the store is refused for its encoding, not its password"
+            }
+        }
+        val rejectsEverywhere = cases.any {
+            manifest.getProperty("case.$it.expect") == "REJECTS_PASSWORD" &&
+                manifest.getProperty("case.$it.opensFromApi")?.trim()?.toIntOrNull() == 0
+        }
+        if (!rejectsEverywhere) {
+            result += "MISSING rejection case with opensFromApi 0: no password rejection runs on every API level, " +
+                "so the minimum level could pass vacuously"
         }
         return result
     }

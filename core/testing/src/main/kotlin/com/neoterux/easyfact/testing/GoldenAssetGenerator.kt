@@ -167,6 +167,16 @@ object GoldenAssetGenerator {
             opensFromApi = 0,
             controlPassword = SyntheticCertificates.DEFAULT_PASSWORD,
         ),
+        GoldenCase(
+            "wrong-password-modern-aes",
+            "A valid AES-256 PKCS#12 opened with the wrong password",
+            IssuerShape.PLAIN,
+            Pkcs12Encoding.MODERN_AES,
+            Expectation.REJECTS_PASSWORD,
+            WRONG_PASSWORD,
+            opensFromApi = AES_PKCS12_OPENS_FROM_API,
+            controlPassword = SyntheticCertificates.DEFAULT_PASSWORD,
+        ),
     )
 
     @JvmStatic
