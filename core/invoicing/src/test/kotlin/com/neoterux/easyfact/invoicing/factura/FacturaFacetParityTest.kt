@@ -45,6 +45,12 @@ class FacturaFacetParityTest {
      */
     private val NOT_MODELLED: Map<String, String> = emptyMap()
 
+    /**
+     * The one text facet the schema leaves untyped, so that nothing bounds it: `factura/@version` is
+     * written from a constant, never from user input.
+     */
+    private val UNBOUNDED_TEXT: Set<String> = setOf("factura/@version")
+
     private val schema: Map<String, SchemaNode> = SchemaModel.factura()
 
     private fun drift(
@@ -85,7 +91,6 @@ class FacturaFacetParityTest {
                 if (facet.fractionDigits == null) {
                     lines += "DRIFT fractionDigits ${facet.path} facet=null schema=${node.fractionDigits}"
                 }
-                if (facet.guardLength != null) lines += "DRIFT guardLength ${facet.path} guard=${facet.guardLength} on a DECIMAL facet"
                 if (facet.totalDigits != node.totalDigits && facet.totalDigits != null) {
                     lines += "DRIFT totalDigits ${facet.path} facet=${facet.totalDigits} schema=${node.totalDigits}"
                 }
@@ -113,8 +118,24 @@ class FacturaFacetParityTest {
                     if (value != null) lines += "DRIFT $name ${facet.path} facet=$value on a ${facet.kind} facet"
                 }
             }
-            if (facet.guardLength != null && node.maxLength != null) {
-                lines += "DRIFT guardLength ${facet.path} guard=${facet.guardLength} beside schema maxLength=${node.maxLength}"
+            if (facet.kind == Kind.TEXT) {
+                if (facet.patterns != node.patterns) {
+                    lines += "DRIFT patterns ${facet.path} facet=${facet.patterns} schema=${node.patterns}"
+                }
+                if (facet.enumerations != node.enumerations) {
+                    lines += "DRIFT enumerations ${facet.path} facet=${facet.enumerations} schema=${node.enumerations}"
+                }
+                if (facet.maxLength == null && facet.patterns.isEmpty() && facet.enumerations.isEmpty() &&
+                    facet.path !in UNBOUNDED_TEXT
+                ) {
+                    lines += "UNBOUNDED ${facet.path} has no maxLength, pattern or enumeration"
+                }
+            } else {
+                if (facet.patterns.isNotEmpty()) lines += "DRIFT patterns ${facet.path} facet=${facet.patterns} on a ${facet.kind} facet"
+                if (facet.enumerations.isNotEmpty()) {
+                    lines += "DRIFT enumerations ${facet.path} facet=${facet.enumerations} on a ${facet.kind} facet"
+                }
+                if (facet.catalogue != null) lines += "DRIFT catalogue ${facet.path} on a ${facet.kind} facet"
             }
         }
         for (path in model.keys) {
@@ -167,10 +188,46 @@ class FacturaFacetParityTest {
     }
 
     @Test
-    fun aGuardLengthOnADecimalFacetIsReportedAsDrift() {
-        val path = "factura/infoFactura/importeTotal"
-        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(guardLength = 32) else it }
-        assertEquals(listOf("DRIFT guardLength $path guard=32 on a DECIMAL facet"), drift(mutated))
+    fun aSecuencialPatternOfEightDigitsIsReportedAsDrift() {
+        val path = "factura/infoTributaria/secuencial"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(patterns = listOf("[0-9]{8}")) else it }
+        assertEquals(
+            listOf("DRIFT patterns $path facet=[[0-9]{8}] schema=[[0-9]{9}]"),
+            drift(mutated),
+        )
+    }
+
+    @Test
+    fun aMissingEnumerationIsReportedAsDrift() {
+        val path = "factura/infoFactura/obligadoContabilidad"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(enumerations = listOf("SI")) else it }
+        assertEquals(
+            listOf("DRIFT enumerations $path facet=[SI] schema=[SI, NO]"),
+            drift(mutated),
+        )
+    }
+
+    @Test
+    fun aReorderedFormaPagoPatternListIsReportedAsDrift() {
+        val path = "factura/infoFactura/pagos/pago/formaPago"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(patterns = it.patterns.reversed()) else it }
+        assertEquals(1, drift(mutated).size)
+    }
+
+    @Test
+    fun aTextFacetBoundedByNothingIsReportedAsUnbounded() {
+        val path = "factura/infoTributaria/ruc"
+        val mutated = FacturaWriter.FACETS.map { if (it.path == path) it.copy(patterns = emptyList()) else it }
+        val report = drift(mutated)
+        assertTrue(report.toString(), "UNBOUNDED $path has no maxLength, pattern or enumeration" in report)
+    }
+
+    @Test
+    fun onlyTheVersionAttributeIsUnboundedText() {
+        val unbounded = FacturaWriter.FACETS
+            .filter { it.kind == Kind.TEXT && it.maxLength == null && it.patterns.isEmpty() && it.enumerations.isEmpty() }
+            .map { it.path }
+        assertEquals(listOf("factura/@version"), unbounded)
     }
 
     @Test

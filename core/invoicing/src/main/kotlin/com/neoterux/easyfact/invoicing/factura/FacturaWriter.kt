@@ -55,12 +55,11 @@ import java.util.Locale
  * **The vendored XSD is the authority, not this file.** The element order and the facets in
  * [Facet] are copied by hand from `factura_V1.1.0.xsd`; the writer never reads the schema, at run
  * time or otherwise. `FacturaFacetParityTest` reads the vendored schema in the test source set and
- * fails the build when any length, occurrence or decimal facet differs from the schema, when a
- * schema path has no facet, or when a facet names a path the schema lacks. Decimal facets judge the
- * value as written, which is the value after [Money]'s half-up rounding, so a carry from rounding
- * can push a value over `totalDigits`. Pattern and enumeration facets are not yet enforced by the
- * writer; the catalogues in [Catalogues] cover only a handful of them. Where the table and the
- * schema disagree, the schema wins and this file is corrected.
+ * fails the build when any length, occurrence, decimal, pattern or enumeration facet differs from
+ * the schema, when a schema path has no facet, or when a facet names a path the schema lacks.
+ * Decimal facets judge the value as written, which is the value after [Money]'s half-up rounding,
+ * so a carry from rounding can push a value over `totalDigits`. Text facets judge the value as
+ * given. Where the table and the schema disagree, the schema wins and this file is corrected.
  */
 object FacturaWriter {
 
@@ -86,18 +85,26 @@ object FacturaWriter {
      * last segment without the at-sign: the element name that is emitted and the element name every
      * [FacturaError] reports.
      *
-     * [maxLength] and [minLength] are the schema's own `maxLength` and `minLength` facets, and
-     * [maxOccurs] its repeat cap where that is greater than one; each is `null` where the schema
-     * states none. A decimal facet carries [totalDigits], [fractionDigits] and the four bounds
-     * [minInclusive], [maxInclusive], [minExclusive] and [maxExclusive], each `null` where the
-     * schema states none. All of them are copied by hand and compared with the schema by a test on
-     * every build. [guardLength] is a bound that belongs to the writer alone and is never compared
-     * with the schema. It exists only on a text facet whose schema type states no `maxLength`, so
-     * that an element governed by a pattern or an enumeration is still bounded; a value within a
-     * guard may still be rejected by a pattern the schema applies. A decimal facet carries none.
+     * [maxLength] and [minLength] are the schema's own `maxLength` and `minLength` facets, [patterns]
+     * and [enumerations] its `pattern` and `enumeration` facets (the pattern strings byte for byte,
+     * in schema order), and [maxOccurs] its repeat cap where that is greater than one; each is
+     * `null` or empty where the schema states none. A decimal facet carries [totalDigits],
+     * [fractionDigits] and the four bounds [minInclusive], [maxInclusive], [minExclusive] and
+     * [maxExclusive], each `null` where the schema states none. All of them are copied by hand and
+     * compared with the schema by a test on every build.
      *
-     * A text value is bounded by [maxLength] when there is one, otherwise by [guardLength]; a
-     * decimal value is judged against its decimal facets by [decimalViolation].
+     * [catalogue] is the one bound that belongs to the writer alone and is never compared with the
+     * schema: the codes the writer knows by name, so that a well-formed code outside them is
+     * reported as [FacturaError.CodeOutsideCatalogue] and not as a malformed one. A test proves
+     * every catalogue value satisfies the facet's [patterns], so the catalogue is always inside what
+     * the schema allows. `codigoPorcentaje` has none: the rate catalogue is read from the SRI
+     * specification rather than hardcoded, historical codes stay valid for past periods, and a
+     * stale set here would reject a correct document.
+     *
+     * A text value is judged against [maxLength], [minLength], XML legality, [catalogue], then
+     * [patterns] and [enumerations]; a decimal value is judged against its decimal facets by
+     * [decimalViolation]. A value satisfies [patterns] when it matches at least one of them in full,
+     * as the schema reads several patterns on one restriction.
      */
     internal data class Facet(
         val path: String,
@@ -105,7 +112,9 @@ object FacturaWriter {
         val maxLength: Int? = null,
         val minLength: Int? = null,
         val maxOccurs: Int? = null,
-        val guardLength: Int? = null,
+        val patterns: List<String> = emptyList(),
+        val enumerations: List<String> = emptyList(),
+        val catalogue: Set<String>? = null,
         val totalDigits: Int? = null,
         val fractionDigits: Int? = null,
         val minInclusive: BigDecimal? = null,
@@ -114,6 +123,18 @@ object FacturaWriter {
         val maxExclusive: BigDecimal? = null,
     ) {
         val name: String get() = path.substringAfterLast('/').removePrefix("@")
+
+        /** [patterns] compiled once, on first use. */
+        private val regexes: List<Regex> by lazy { patterns.map { Regex(it) } }
+
+        /**
+         * Whether [value] satisfies this facet's `pattern` and `enumeration` facets; a facet that
+         * states neither accepts every value. `Regex.matches` anchors at both ends, as the schema does.
+         */
+        fun acceptsFormat(value: String): Boolean {
+            if (enumerations.isNotEmpty() && value !in enumerations) return false
+            return regexes.isEmpty() || regexes.any { it.matches(value) }
+        }
     }
 
     /** Every facet declared below, in declaration order; filled by the factories, so complete by construction. */
@@ -129,12 +150,41 @@ object FacturaWriter {
      * A text facet whose schema type states [maxLength]. [minLength] is the schema's, which is 1
      * for nearly every such type; `null` says the schema states none.
      */
-    private fun bounded(path: String, maxLength: Int, minLength: Int? = 1, maxOccurs: Int? = null): Facet =
-        register(Facet(path, Kind.TEXT, maxLength = maxLength, minLength = minLength, maxOccurs = maxOccurs))
+    private fun bounded(
+        path: String,
+        maxLength: Int,
+        minLength: Int? = 1,
+        maxOccurs: Int? = null,
+        patterns: List<String> = emptyList(),
+        catalogue: Set<String>? = null,
+    ): Facet = register(
+        Facet(
+            path,
+            Kind.TEXT,
+            maxLength = maxLength,
+            minLength = minLength,
+            maxOccurs = maxOccurs,
+            patterns = patterns,
+            catalogue = catalogue,
+        ),
+    )
 
-    /** A text facet whose schema type states no `maxLength`; the writer keeps its own bound. */
-    private fun guarded(path: String, guardLength: Int): Facet =
-        register(Facet(path, Kind.TEXT, guardLength = guardLength))
+    /**
+     * A text facet whose schema type states no `maxLength` and is bounded by [patterns] or
+     * [enumerations] instead.
+     */
+    private fun patterned(
+        path: String,
+        vararg patterns: String,
+        enumerations: List<String> = emptyList(),
+        catalogue: Set<String>? = null,
+    ): Facet {
+        require(patterns.isNotEmpty() || enumerations.isNotEmpty()) { "$path is bounded by neither a pattern nor an enumeration" }
+        return register(Facet(path, Kind.TEXT, patterns = patterns.toList(), enumerations = enumerations, catalogue = catalogue))
+    }
+
+    /** A text facet the schema leaves untyped, so that nothing bounds it: `factura/@version` only. */
+    private fun untyped(path: String): Facet = register(Facet(path, Kind.TEXT))
 
     /** The decimal facets of one named schema type, copied by hand and compared by a test. */
     private class DecimalShape(
@@ -169,10 +219,34 @@ object FacturaWriter {
             ),
         )
 
-    private const val TEXT_MAX = 300
-
     private const val ROOT_ID = "comprobante"
     private const val SCHEMA_VERSION = "1.1.0"
+
+    // --- schema patterns, byte for byte from factura_V1.1.0.xsd ---------------------------------------
+
+    /** `[^\n]*`: any text without a line feed. Most free-text types state it beside their `maxLength`. */
+    private const val NO_LINE_FEED = "[^\\n]*"
+    private const val THREE_DIGITS = "[0-9]{3}"
+    private const val NINE_DIGITS = "[0-9]{9}"
+    private const val DIGITS = "[0-9]+"
+    private const val DOCUMENT_CODE = "[0-9]{2,3}"
+    private const val DATE = "(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012])/20[0-9][0-9]"
+    private const val TAX_CODE = "[235]"
+    private const val IDENTIFICATION_TYPE = "[0][4-8]"
+    private const val UPPER_CASE_TERM = "([A-Z])*"
+
+    /** `compensacion` and `compensacionReembolso` share one code type, whose only value is `1`. */
+    private const val COMPENSATION_CODE = "1"
+
+    // --- catalogues the writer knows by name -------------------------------------------------------
+
+    private val ENVIRONMENTS = setOf("1", "2")
+    private val EMISSION_TYPES = setOf("1")
+    private val DOCUMENT_TYPES = setOf("01")
+    private val BUYER_IDENTIFICATION_TYPES = setOf("04", "05", "06", "07", "08")
+
+    /** `2` IVA, `3` ICE, `5` IRBPNR. */
+    private val TAXES = setOf("2", "3", "5")
 
     // --- schema paths ------------------------------------------------------------------------------
 
@@ -195,51 +269,55 @@ object FacturaWriter {
     // --- factura -------------------------------------------------------------------------------
 
     private val FACTURA = container(ROOT)
-    private val ID_ATTRIBUTE = guarded("$ROOT/@id", ROOT_ID.length)
-    private val VERSION_ATTRIBUTE = guarded("$ROOT/@version", SCHEMA_VERSION.length)
+    private val ID_ATTRIBUTE = patterned("$ROOT/@id", enumerations = listOf(ROOT_ID))
+    private val VERSION_ATTRIBUTE = untyped("$ROOT/@version")
 
     // --- infoTributaria ------------------------------------------------------------------------
 
     private val INFO_TRIBUTARIA = container(TAX_INFO)
-    private val AMBIENTE = guarded("$TAX_INFO/ambiente", 1)
-    private val TIPO_EMISION = guarded("$TAX_INFO/tipoEmision", 1)
-    private val RAZON_SOCIAL = bounded("$TAX_INFO/razonSocial", 300)
-    private val NOMBRE_COMERCIAL = bounded("$TAX_INFO/nombreComercial", 300)
-    private val RUC = guarded("$TAX_INFO/ruc", 13)
-    private val CLAVE_ACCESO = guarded("$TAX_INFO/claveAcceso", 49)
-    private val COD_DOC = guarded("$TAX_INFO/codDoc", 2)
-    private val ESTAB = guarded("$TAX_INFO/estab", 3)
-    private val PTO_EMI = guarded("$TAX_INFO/ptoEmi", 3)
-    private val SECUENCIAL = guarded("$TAX_INFO/secuencial", 9)
-    private val DIR_MATRIZ = bounded("$TAX_INFO/dirMatriz", 300)
-    private val AGENTE_RETENCION = bounded("$TAX_INFO/agenteRetencion", 8, minLength = null)
-    private val CONTRIBUYENTE_RIMPE = guarded("$TAX_INFO/contribuyenteRimpe", TEXT_MAX)
+    private val AMBIENTE = patterned("$TAX_INFO/ambiente", "[1-2]{1}", catalogue = ENVIRONMENTS)
+    private val TIPO_EMISION = patterned("$TAX_INFO/tipoEmision", "[12]{1}", catalogue = EMISSION_TYPES)
+    private val RAZON_SOCIAL = bounded("$TAX_INFO/razonSocial", 300, patterns = listOf(NO_LINE_FEED))
+    private val NOMBRE_COMERCIAL = bounded("$TAX_INFO/nombreComercial", 300, patterns = listOf(NO_LINE_FEED))
+    private val RUC = patterned("$TAX_INFO/ruc", "[0-9]{10}001")
+    private val CLAVE_ACCESO = patterned("$TAX_INFO/claveAcceso", "[0-9]{49}")
+    private val COD_DOC = patterned("$TAX_INFO/codDoc", "[0-9]{2}", catalogue = DOCUMENT_TYPES)
+    private val ESTAB = patterned("$TAX_INFO/estab", THREE_DIGITS)
+    private val PTO_EMI = patterned("$TAX_INFO/ptoEmi", THREE_DIGITS)
+    private val SECUENCIAL = patterned("$TAX_INFO/secuencial", NINE_DIGITS)
+    private val DIR_MATRIZ = bounded("$TAX_INFO/dirMatriz", 300, patterns = listOf(NO_LINE_FEED))
+    private val AGENTE_RETENCION = bounded("$TAX_INFO/agenteRetencion", 8, minLength = null, patterns = listOf(DIGITS))
+    private val CONTRIBUYENTE_RIMPE = patterned("$TAX_INFO/contribuyenteRimpe", "CONTRIBUYENTE (NEGOCIO POPULAR - )?RÉGIMEN RIMPE")
 
     // --- infoFactura ---------------------------------------------------------------------------
 
     private val INFO_FACTURA = container(INVOICE_INFO)
-    private val FECHA_EMISION = guarded("$INVOICE_INFO/fechaEmision", 10)
-    private val DIR_ESTABLECIMIENTO = bounded("$INVOICE_INFO/dirEstablecimiento", 300)
-    private val CONTRIBUYENTE_ESPECIAL = bounded("$INVOICE_INFO/contribuyenteEspecial", 13, minLength = 3)
-    private val OBLIGADO_CONTABILIDAD = guarded("$INVOICE_INFO/obligadoContabilidad", 2)
-    private val COMERCIO_EXTERIOR = guarded("$INVOICE_INFO/comercioExterior", 20)
-    private val INCO_TERM_FACTURA = bounded("$INVOICE_INFO/incoTermFactura", 10)
-    private val LUGAR_INCO_TERM = bounded("$INVOICE_INFO/lugarIncoTerm", 300)
-    private val PAIS_ORIGEN = guarded("$INVOICE_INFO/paisOrigen", 3)
-    private val PUERTO_EMBARQUE = bounded("$INVOICE_INFO/puertoEmbarque", 300)
-    private val PUERTO_DESTINO = bounded("$INVOICE_INFO/puertoDestino", 300)
-    private val PAIS_DESTINO = guarded("$INVOICE_INFO/paisDestino", 3)
-    private val PAIS_ADQUISICION = guarded("$INVOICE_INFO/paisAdquisicion", 3)
-    private val TIPO_IDENTIFICACION_COMPRADOR = guarded("$INVOICE_INFO/tipoIdentificacionComprador", 2)
-    private val GUIA_REMISION = guarded("$INVOICE_INFO/guiaRemision", 17)
-    private val RAZON_SOCIAL_COMPRADOR = bounded("$INVOICE_INFO/razonSocialComprador", 300)
-    private val IDENTIFICACION_COMPRADOR = bounded("$INVOICE_INFO/identificacionComprador", 20)
-    private val DIRECCION_COMPRADOR = bounded("$INVOICE_INFO/direccionComprador", 300)
+    private val FECHA_EMISION = patterned("$INVOICE_INFO/fechaEmision", DATE)
+    private val DIR_ESTABLECIMIENTO = bounded("$INVOICE_INFO/dirEstablecimiento", 300, patterns = listOf(NO_LINE_FEED))
+    private val CONTRIBUYENTE_ESPECIAL = bounded("$INVOICE_INFO/contribuyenteEspecial", 13, minLength = 3, patterns = listOf("([A-Za-z0-9])*"))
+    private val OBLIGADO_CONTABILIDAD = patterned("$INVOICE_INFO/obligadoContabilidad", enumerations = listOf("SI", "NO"))
+    private val COMERCIO_EXTERIOR = patterned("$INVOICE_INFO/comercioExterior", "EXPORTADOR")
+    private val INCO_TERM_FACTURA = bounded("$INVOICE_INFO/incoTermFactura", 10, patterns = listOf(UPPER_CASE_TERM))
+    private val LUGAR_INCO_TERM = bounded("$INVOICE_INFO/lugarIncoTerm", 300, patterns = listOf(NO_LINE_FEED))
+    private val PAIS_ORIGEN = patterned("$INVOICE_INFO/paisOrigen", THREE_DIGITS)
+    private val PUERTO_EMBARQUE = bounded("$INVOICE_INFO/puertoEmbarque", 300, patterns = listOf(NO_LINE_FEED))
+    private val PUERTO_DESTINO = bounded("$INVOICE_INFO/puertoDestino", 300, patterns = listOf(NO_LINE_FEED))
+    private val PAIS_DESTINO = patterned("$INVOICE_INFO/paisDestino", THREE_DIGITS)
+    private val PAIS_ADQUISICION = patterned("$INVOICE_INFO/paisAdquisicion", THREE_DIGITS)
+    private val TIPO_IDENTIFICACION_COMPRADOR = patterned(
+        "$INVOICE_INFO/tipoIdentificacionComprador",
+        IDENTIFICATION_TYPE,
+        catalogue = BUYER_IDENTIFICATION_TYPES,
+    )
+    private val GUIA_REMISION = patterned("$INVOICE_INFO/guiaRemision", "[0-9]{3}-[0-9]{3}-[0-9]{9}")
+    private val RAZON_SOCIAL_COMPRADOR = bounded("$INVOICE_INFO/razonSocialComprador", 300, patterns = listOf(NO_LINE_FEED))
+    private val IDENTIFICACION_COMPRADOR = bounded("$INVOICE_INFO/identificacionComprador", 20, patterns = listOf(NO_LINE_FEED))
+    private val DIRECCION_COMPRADOR = bounded("$INVOICE_INFO/direccionComprador", 300, patterns = listOf(NO_LINE_FEED))
     private val TOTAL_SIN_IMPUESTOS = decimal("$INVOICE_INFO/totalSinImpuestos")
     private val TOTAL_SUBSIDIO = decimal("$INVOICE_INFO/totalSubsidio")
-    private val INCO_TERM_TOTAL_SIN_IMPUESTOS = bounded("$INVOICE_INFO/incoTermTotalSinImpuestos", 10)
+    private val INCO_TERM_TOTAL_SIN_IMPUESTOS = bounded("$INVOICE_INFO/incoTermTotalSinImpuestos", 10, patterns = listOf(UPPER_CASE_TERM))
     private val TOTAL_DESCUENTO = decimal("$INVOICE_INFO/totalDescuento", SIGNED_AMOUNT)
-    private val COD_DOC_REEMBOLSO = guarded("$INVOICE_INFO/codDocReembolso", 3)
+    private val COD_DOC_REEMBOLSO = patterned("$INVOICE_INFO/codDocReembolso", DOCUMENT_CODE)
     private val TOTAL_COMPROBANTES_REEMBOLSO = decimal("$INVOICE_INFO/totalComprobantesReembolso")
     private val TOTAL_BASE_IMPONIBLE_REEMBOLSO = decimal("$INVOICE_INFO/totalBaseImponibleReembolso")
     private val TOTAL_IMPUESTO_REEMBOLSO = decimal("$INVOICE_INFO/totalImpuestoReembolso")
@@ -249,8 +327,8 @@ object FacturaWriter {
     private val GASTOS_ADUANEROS = decimal("$INVOICE_INFO/gastosAduaneros")
     private val GASTOS_TRANSPORTE_OTROS = decimal("$INVOICE_INFO/gastosTransporteOtros")
     private val IMPORTE_TOTAL = decimal("$INVOICE_INFO/importeTotal")
-    private val MONEDA = bounded("$INVOICE_INFO/moneda", 15)
-    private val PLACA = bounded("$INVOICE_INFO/placa", 20)
+    private val MONEDA = bounded("$INVOICE_INFO/moneda", 15, patterns = listOf(NO_LINE_FEED))
+    private val PLACA = bounded("$INVOICE_INFO/placa", 20, patterns = listOf(NO_LINE_FEED))
     private val VALOR_RET_IVA = decimal("$INVOICE_INFO/valorRetIva")
     private val VALOR_RET_RENTA = decimal("$INVOICE_INFO/valorRetRenta")
 
@@ -258,8 +336,8 @@ object FacturaWriter {
 
     private val TOTAL_CON_IMPUESTOS = container("$INVOICE_INFO/totalConImpuestos")
     private val TOTAL_IMPUESTO = container(TAX_TOTAL)
-    private val TOTAL_IMPUESTO_CODIGO = bounded("$TAX_TOTAL/codigo", 1)
-    private val TOTAL_IMPUESTO_CODIGO_PORCENTAJE = bounded("$TAX_TOTAL/codigoPorcentaje", 4)
+    private val TOTAL_IMPUESTO_CODIGO = bounded("$TAX_TOTAL/codigo", 1, patterns = listOf(TAX_CODE), catalogue = TAXES)
+    private val TOTAL_IMPUESTO_CODIGO_PORCENTAJE = bounded("$TAX_TOTAL/codigoPorcentaje", 4, patterns = listOf(DIGITS))
     private val DESCUENTO_ADICIONAL = decimal("$TAX_TOTAL/descuentoAdicional", SIGNED_AMOUNT)
     private val TOTAL_IMPUESTO_BASE_IMPONIBLE = decimal("$TAX_TOTAL/baseImponible")
     // Spelt out in full: an optional element that used to be left out of the document.
@@ -271,13 +349,13 @@ object FacturaWriter {
 
     private val COMPENSACIONES = container("$INVOICE_INFO/compensaciones")
     private val COMPENSACION = container(COMPENSATION)
-    private val COMPENSACION_CODIGO = guarded("$COMPENSATION/codigo", 4)
+    private val COMPENSACION_CODIGO = patterned("$COMPENSATION/codigo", COMPENSATION_CODE)
     private val COMPENSACION_TARIFA = decimal("$COMPENSATION/tarifa", RATE)
     private val COMPENSACION_VALOR = decimal("$COMPENSATION/valor")
 
     private val COMPENSACIONES_REEMBOLSO = container("$REFUND/compensacionesReembolso")
     private val COMPENSACION_REEMBOLSO = container(REFUND_COMPENSATION)
-    private val COMPENSACION_REEMBOLSO_CODIGO = guarded("$REFUND_COMPENSATION/codigo", 4)
+    private val COMPENSACION_REEMBOLSO_CODIGO = patterned("$REFUND_COMPENSATION/codigo", COMPENSATION_CODE)
     private val COMPENSACION_REEMBOLSO_TARIFA = decimal("$REFUND_COMPENSATION/tarifa", RATE)
     private val COMPENSACION_REEMBOLSO_VALOR = decimal("$REFUND_COMPENSATION/valor")
 
@@ -305,19 +383,19 @@ object FacturaWriter {
 
     private val PAGOS = container("$INVOICE_INFO/pagos")
     private val PAGO = container(PAYMENT)
-    private val FORMA_PAGO = guarded("$PAYMENT/formaPago", 2)
+    private val FORMA_PAGO = patterned("$PAYMENT/formaPago", "[0][1-9]", "[1][0-9]", "[2][0-1]")
     private val TOTAL = decimal("$PAYMENT/total")
     private val PLAZO = decimal("$PAYMENT/plazo")
-    private val UNIDAD_TIEMPO = bounded("$PAYMENT/unidadTiempo", 10)
+    private val UNIDAD_TIEMPO = bounded("$PAYMENT/unidadTiempo", 10, patterns = listOf(NO_LINE_FEED))
 
     // --- detalles -----------------------------------------------------------------------------
 
     private val DETALLES = container("$ROOT/detalles")
     private val DETALLE = container(LINE)
-    private val CODIGO_PRINCIPAL = bounded("$LINE/codigoPrincipal", 25)
-    private val CODIGO_AUXILIAR = bounded("$LINE/codigoAuxiliar", 25)
-    private val DESCRIPCION = bounded("$LINE/descripcion", 300)
-    private val UNIDAD_MEDIDA = bounded("$LINE/unidadMedida", 50)
+    private val CODIGO_PRINCIPAL = bounded("$LINE/codigoPrincipal", 25, patterns = listOf(NO_LINE_FEED))
+    private val CODIGO_AUXILIAR = bounded("$LINE/codigoAuxiliar", 25, patterns = listOf(NO_LINE_FEED))
+    private val DESCRIPCION = bounded("$LINE/descripcion", 300, patterns = listOf(NO_LINE_FEED))
+    private val UNIDAD_MEDIDA = bounded("$LINE/unidadMedida", 50, patterns = listOf(NO_LINE_FEED))
     private val CANTIDAD = decimal("$LINE/cantidad", QUANTITY)
     private val PRECIO_UNITARIO = decimal("$LINE/precioUnitario", QUANTITY)
     private val PRECIO_SIN_SUBSIDIO = decimal("$LINE/precioSinSubsidio", QUANTITY)
@@ -329,8 +407,8 @@ object FacturaWriter {
     private val DET_ADICIONAL_VALOR = bounded("$LINE_DETAIL/@valor", 300)
     private val IMPUESTOS = container("$LINE/impuestos")
     private val IMPUESTO = container(LINE_TAX)
-    private val IMPUESTO_CODIGO = bounded("$LINE_TAX/codigo", 1)
-    private val IMPUESTO_CODIGO_PORCENTAJE = bounded("$LINE_TAX/codigoPorcentaje", 4)
+    private val IMPUESTO_CODIGO = bounded("$LINE_TAX/codigo", 1, patterns = listOf(TAX_CODE), catalogue = TAXES)
+    private val IMPUESTO_CODIGO_PORCENTAJE = bounded("$LINE_TAX/codigoPorcentaje", 4, patterns = listOf(DIGITS))
     private val IMPUESTO_TARIFA = decimal("$LINE_TAX/tarifa", RATE)
     private val IMPUESTO_BASE_IMPONIBLE = decimal("$LINE_TAX/baseImponible")
     private val IMPUESTO_VALOR = decimal("$LINE_TAX/valor")
@@ -339,20 +417,20 @@ object FacturaWriter {
 
     private val REEMBOLSOS = container("$ROOT/reembolsos")
     private val REEMBOLSO_DETALLE = container(REFUND)
-    private val TIPO_IDENTIFICACION_PROVEEDOR_REEMBOLSO = guarded("$REFUND/tipoIdentificacionProveedorReembolso", 2)
-    private val IDENTIFICACION_PROVEEDOR_REEMBOLSO = bounded("$REFUND/identificacionProveedorReembolso", 20)
-    private val COD_PAIS_PAGO_PROVEEDOR_REEMBOLSO = guarded("$REFUND/codPaisPagoProveedorReembolso", 3)
-    private val TIPO_PROVEEDOR_REEMBOLSO = guarded("$REFUND/tipoProveedorReembolso", 2)
-    private val REEMBOLSO_COD_DOC = guarded("$REFUND/codDocReembolso", 3)
-    private val ESTAB_DOC_REEMBOLSO = guarded("$REFUND/estabDocReembolso", 3)
-    private val PTO_EMI_DOC_REEMBOLSO = guarded("$REFUND/ptoEmiDocReembolso", 3)
-    private val SECUENCIAL_DOC_REEMBOLSO = guarded("$REFUND/secuencialDocReembolso", 9)
-    private val FECHA_EMISION_DOC_REEMBOLSO = guarded("$REFUND/fechaEmisionDocReembolso", 10)
-    private val NUMERO_AUTORIZACION_DOC_REEMB = bounded("$REFUND/numeroautorizacionDocReemb", 49, minLength = 10)
+    private val TIPO_IDENTIFICACION_PROVEEDOR_REEMBOLSO = patterned("$REFUND/tipoIdentificacionProveedorReembolso", IDENTIFICATION_TYPE)
+    private val IDENTIFICACION_PROVEEDOR_REEMBOLSO = bounded("$REFUND/identificacionProveedorReembolso", 20, patterns = listOf(NO_LINE_FEED))
+    private val COD_PAIS_PAGO_PROVEEDOR_REEMBOLSO = patterned("$REFUND/codPaisPagoProveedorReembolso", THREE_DIGITS)
+    private val TIPO_PROVEEDOR_REEMBOLSO = patterned("$REFUND/tipoProveedorReembolso", "[0][12]")
+    private val REEMBOLSO_COD_DOC = patterned("$REFUND/codDocReembolso", DOCUMENT_CODE)
+    private val ESTAB_DOC_REEMBOLSO = patterned("$REFUND/estabDocReembolso", THREE_DIGITS)
+    private val PTO_EMI_DOC_REEMBOLSO = patterned("$REFUND/ptoEmiDocReembolso", THREE_DIGITS)
+    private val SECUENCIAL_DOC_REEMBOLSO = patterned("$REFUND/secuencialDocReembolso", NINE_DIGITS)
+    private val FECHA_EMISION_DOC_REEMBOLSO = patterned("$REFUND/fechaEmisionDocReembolso", DATE)
+    private val NUMERO_AUTORIZACION_DOC_REEMB = bounded("$REFUND/numeroautorizacionDocReemb", 49, minLength = 10, patterns = listOf("[0-9]{10,49}"))
     private val DETALLE_IMPUESTOS = container("$REFUND/detalleImpuestos")
     private val DETALLE_IMPUESTO = container(REFUND_TAX)
-    private val DETALLE_IMPUESTO_CODIGO = guarded("$REFUND_TAX/codigo", 4)
-    private val DETALLE_IMPUESTO_CODIGO_PORCENTAJE = guarded("$REFUND_TAX/codigoPorcentaje", 4)
+    private val DETALLE_IMPUESTO_CODIGO = patterned("$REFUND_TAX/codigo", TAX_CODE, catalogue = TAXES)
+    private val DETALLE_IMPUESTO_CODIGO_PORCENTAJE = patterned("$REFUND_TAX/codigoPorcentaje", "[0-9]{1,4}")
     private val DETALLE_IMPUESTO_TARIFA = decimal("$REFUND_TAX/tarifa", RATE)
     private val BASE_IMPONIBLE_REEMBOLSO = decimal("$REFUND_TAX/baseImponibleReembolso")
     private val IMPUESTO_REEMBOLSO = decimal("$REFUND_TAX/impuestoReembolso")
@@ -361,19 +439,19 @@ object FacturaWriter {
 
     private val RETENCIONES = container("$ROOT/retenciones")
     private val RETENCION = container(WITHHOLDING)
-    private val RETENCION_CODIGO = guarded("$WITHHOLDING/codigo", 4)
-    private val RETENCION_CODIGO_PORCENTAJE = guarded("$WITHHOLDING/codigoPorcentaje", 4)
+    private val RETENCION_CODIGO = patterned("$WITHHOLDING/codigo", "[4]{1}")
+    private val RETENCION_CODIGO_PORCENTAJE = patterned("$WITHHOLDING/codigoPorcentaje", "[0-9]{1,3}")
     private val RETENCION_TARIFA = decimal("$WITHHOLDING/tarifa", WITHHOLDING_RATE)
     private val RETENCION_VALOR = decimal("$WITHHOLDING/valor")
 
     // --- negotiable, fiscal machine and infoAdicional -----------------------------
 
     private val TIPO_NEGOCIABLE = container("$ROOT/tipoNegociable")
-    private val CORREO = bounded("$ROOT/tipoNegociable/correo", 100)
+    private val CORREO = bounded("$ROOT/tipoNegociable/correo", 100, patterns = listOf(NO_LINE_FEED))
     private val MAQUINA_FISCAL = container(FISCAL_MACHINE)
-    private val MARCA = bounded("$FISCAL_MACHINE/marca", 30)
-    private val MODELO = bounded("$FISCAL_MACHINE/modelo", 30)
-    private val SERIE = bounded("$FISCAL_MACHINE/serie", 30)
+    private val MARCA = bounded("$FISCAL_MACHINE/marca", 30, patterns = listOf(NO_LINE_FEED))
+    private val MODELO = bounded("$FISCAL_MACHINE/modelo", 30, patterns = listOf(NO_LINE_FEED))
+    private val SERIE = bounded("$FISCAL_MACHINE/serie", 30, patterns = listOf(NO_LINE_FEED))
     private val INFO_ADICIONAL = container("$ROOT/infoAdicional")
     private val CAMPO_ADICIONAL = bounded(ADDITIONAL_FIELD, 300, maxOccurs = 15)
     private val CAMPO_ADICIONAL_NOMBRE = bounded("$ADDITIONAL_FIELD/@nombre", 300)
@@ -386,24 +464,6 @@ object FacturaWriter {
 
     /** The repeat cap the schema states for [facet]; every facet asked here carries one. */
     private fun cap(facet: Facet): Int = checkNotNull(facet.maxOccurs) { "${facet.path} has no occurrence cap" }
-
-    /**
-     * The catalogues small and stable enough to check here.
-     *
-     * `codigoPorcentaje` is deliberately absent: the Ficha says to read the rate catalogue from
-     * the specification rather than hardcode it, historical codes stay valid for past periods, and
-     * a stale set here would reject a correct document. The XSD gate in plan 02-09 is where a
-     * catalogue belongs once it is vendored.
-     */
-    private object Catalogues {
-        val ENVIRONMENT = setOf("1", "2")
-        val EMISSION_TYPE = setOf("1")
-        val DOCUMENT_TYPE = setOf("01")
-        val BUYER_IDENTIFICATION_TYPE = setOf("04", "05", "06", "07", "08")
-
-        /** `2` IVA, `3` ICE, `5` IRBPNR. */
-        val TAX = setOf("2", "3", "5")
-    }
 
     private val ISSUE_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
 
@@ -434,13 +494,13 @@ object FacturaWriter {
 
     private fun writeTaxInfo(out: Emission, info: TaxInfo) {
         out.open(INFO_TRIBUTARIA)
-        out.code(AMBIENTE, info.environmentCode, Catalogues.ENVIRONMENT)
-        out.code(TIPO_EMISION, info.emissionTypeCode, Catalogues.EMISSION_TYPE)
+        out.code(AMBIENTE, info.environmentCode)
+        out.code(TIPO_EMISION, info.emissionTypeCode)
         out.text(RAZON_SOCIAL, info.legalName)
         out.optional(NOMBRE_COMERCIAL, info.tradeName)
         out.text(RUC, info.ruc)
         out.text(CLAVE_ACCESO, info.accessKey)
-        out.code(COD_DOC, info.documentTypeCode, Catalogues.DOCUMENT_TYPE)
+        out.code(COD_DOC, info.documentTypeCode)
         out.text(ESTAB, info.establishmentCode)
         out.text(PTO_EMI, info.emissionPointCode)
         out.text(SECUENCIAL, info.sequential)
@@ -457,7 +517,7 @@ object FacturaWriter {
         out.optional(CONTRIBUYENTE_ESPECIAL, info.specialTaxpayerNumber)
         out.text(OBLIGADO_CONTABILIDAD, if (info.accountingRequired) "SI" else "NO")
         writeExportInfo(out, info.exportInfo)
-        out.code(TIPO_IDENTIFICACION_COMPRADOR, info.buyerIdentificationTypeCode, Catalogues.BUYER_IDENTIFICATION_TYPE)
+        out.code(TIPO_IDENTIFICACION_COMPRADOR, info.buyerIdentificationTypeCode)
         out.optional(GUIA_REMISION, info.dispatchNote)
         out.text(RAZON_SOCIAL_COMPRADOR, info.buyerLegalName)
         out.text(IDENTIFICACION_COMPRADOR, info.buyerIdentification)
@@ -507,7 +567,7 @@ object FacturaWriter {
         out.open(TOTAL_CON_IMPUESTOS)
         for (total in totals) {
             out.open(TOTAL_IMPUESTO)
-            out.code(TOTAL_IMPUESTO_CODIGO, total.taxCode, Catalogues.TAX)
+            out.code(TOTAL_IMPUESTO_CODIGO, total.taxCode)
             out.text(TOTAL_IMPUESTO_CODIGO_PORCENTAJE, total.rateCode)
             out.optionalAmount(DESCUENTO_ADICIONAL, total.additionalDiscount)
             out.amount(TOTAL_IMPUESTO_BASE_IMPONIBLE, total.taxableBase)
@@ -588,7 +648,7 @@ object FacturaWriter {
         out.open(IMPUESTOS)
         for (tax in taxes) {
             out.open(IMPUESTO)
-            out.code(IMPUESTO_CODIGO, tax.taxCode, Catalogues.TAX)
+            out.code(IMPUESTO_CODIGO, tax.taxCode)
             out.text(IMPUESTO_CODIGO_PORCENTAJE, tax.rateCode)
             out.rate(IMPUESTO_TARIFA, tax.rate)
             out.amount(IMPUESTO_BASE_IMPONIBLE, tax.taxableBase)
@@ -624,7 +684,7 @@ object FacturaWriter {
         out.open(DETALLE_IMPUESTOS)
         for (tax in taxes) {
             out.open(DETALLE_IMPUESTO)
-            out.code(DETALLE_IMPUESTO_CODIGO, tax.taxCode, Catalogues.TAX)
+            out.code(DETALLE_IMPUESTO_CODIGO, tax.taxCode)
             out.text(DETALLE_IMPUESTO_CODIGO_PORCENTAJE, tax.rateCode)
             out.rate(DETALLE_IMPUESTO_TARIFA, tax.rate)
             out.amount(BASE_IMPONIBLE_REEMBOLSO, tax.taxableBase)
@@ -778,13 +838,10 @@ object FacturaWriter {
             text(element, value)
         }
 
-        fun code(element: Facet, value: String, catalogue: Set<String>) {
-            if (!check(element, value)) return
-            if (value !in catalogue) {
-                fail(FacturaError.CodeOutsideCatalogue(element.name, value, catalogue))
-                return
-            }
-            xml.open(element.name).text(value).close()
+        /** A required code: [element] carries the catalogue its value is judged against. */
+        fun code(element: Facet, value: String) {
+            checkNotNull(element.catalogue) { "${element.path} has no catalogue" }
+            text(element, value)
         }
 
         fun amount(element: Facet, value: BigDecimal) = decimal(element, Money.amount(value))
@@ -833,9 +890,9 @@ object FacturaWriter {
             }
             // The schema counts characters, and a supplementary character is two UTF-16 units.
             val length = value.codePointCount(0, value.length)
-            val bound = element.maxLength ?: element.guardLength
-            if (bound != null && length > bound) {
-                fail(FacturaError.FieldTooLong(element.name, bound, length))
+            val maximum = element.maxLength
+            if (maximum != null && length > maximum) {
+                fail(FacturaError.FieldTooLong(element.name, maximum, length))
                 return false
             }
             val minimum = element.minLength
@@ -845,6 +902,17 @@ object FacturaWriter {
             }
             if (!CanonicalEmitter.isLegalXmlText(value)) {
                 fail(FacturaError.IllegalCharacter(element.name))
+                return false
+            }
+            // A catalogue is inside the pattern language, so a code outside it keeps its own name
+            // and a malformed one is only ever reported as malformed.
+            val catalogue = element.catalogue
+            if (catalogue != null && value !in catalogue) {
+                fail(FacturaError.CodeOutsideCatalogue(element.name, value, catalogue))
+                return false
+            }
+            if (!element.acceptsFormat(value)) {
+                fail(FacturaError.InvalidFormat(element.name))
                 return false
             }
             return true

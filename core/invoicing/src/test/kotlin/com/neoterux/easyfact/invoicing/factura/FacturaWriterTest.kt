@@ -517,6 +517,34 @@ class FacturaWriterTest {
         )
     }
 
+    // ---- pattern and enumeration facets (WR-02) -----------------------------------------------------
+
+    @Test
+    fun aHeadOfficeAddressContainingALineFeedIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("dirMatriz"),
+            error(base.copy(taxInfo = base.taxInfo.copy(headOfficeAddress = "Calle Falsa\n123"))),
+        )
+    }
+
+    @Test
+    fun aOneDigitSequentialIsInvalidFormat() {
+        val base = SampleFactura.factura()
+        assertEquals(
+            FacturaError.InvalidFormat("secuencial"),
+            error(base.copy(taxInfo = base.taxInfo.copy(sequential = "1"))),
+        )
+    }
+
+    @Test
+    fun aFailureForAPatternNeverCarriesTheOffendingValue() {
+        val base = SampleFactura.factura()
+        val rendered = error(base.copy(taxInfo = base.taxInfo.copy(headOfficeAddress = "Secret\nStreet"))).toString()
+        assertEquals("InvalidFormat(element=dirMatriz)", rendered)
+        assertFalse(rendered, rendered.contains("Secret"))
+    }
+
     @Test
     fun aFailureNeverCarriesTheOffendingValue() {
         val base = SampleFactura.factura()

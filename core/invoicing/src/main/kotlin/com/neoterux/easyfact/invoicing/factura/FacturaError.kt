@@ -81,6 +81,13 @@ sealed interface FacturaError {
      */
     data class BlankField(override val element: String) : FacturaError
 
+    /**
+     * The value for [element] does not satisfy the schema's `pattern` or `enumeration` facet for it:
+     * a line feed in an address, a one-digit sequential, a free-text regime legend. Like every
+     * variant it names the element only and never carries the value that was refused.
+     */
+    data class InvalidFormat(override val element: String) : FacturaError
+
     /** [code] is not in the catalogue the SRI publishes for [element]. */
     data class CodeOutsideCatalogue(
         override val element: String,
