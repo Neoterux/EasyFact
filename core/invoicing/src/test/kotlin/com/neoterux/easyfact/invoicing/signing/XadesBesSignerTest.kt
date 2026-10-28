@@ -276,6 +276,62 @@ class XadesBesSignerTest {
         assertTrue(error is SigningError.InputNotCanonical)
     }
 
+    // --- the document reference must resolve to the root ------------------------------------
+
+    private val sampleRootTag = "<factura id=\"comprobante\" version=\"1.1.0\">"
+
+    private fun assertRefusedForRootId(root: String) {
+        val error = errorOf(sign(documentOf(root)))
+        assertTrue("got $error", error is SigningError.InputNotCanonical)
+        assertTrue(
+            "reason names the id: $error",
+            (error as SigningError.InputNotCanonical).reason.contains("id=\"comprobante\""),
+        )
+    }
+
+    @Test
+    fun aRootWithNoAttributesIsRefusedBecauseTheReferenceCannotResolve() {
+        assertTrue(rootText().contains(sampleRootTag))
+        assertRefusedForRootId(rootText().replace(sampleRootTag, "<factura>"))
+    }
+
+    @Test
+    fun aRootWhoseIdIsAnotherValueIsRefused() {
+        assertRefusedForRootId(rootText().replace(sampleRootTag, "<factura id=\"x\" version=\"1.1.0\">"))
+    }
+
+    @Test
+    fun anUppercaseIdAttributeIsRefused() {
+        assertRefusedForRootId(rootText().replace(sampleRootTag, "<factura ID=\"comprobante\" version=\"1.1.0\">"))
+    }
+
+    @Test
+    fun anAttributeWhoseNameMerelyEndsInIdIsRefused() {
+        assertRefusedForRootId(rootText().replace(sampleRootTag, "<factura version=\"1.1.0\" xid=\"comprobante\">"))
+    }
+
+    @Test
+    fun theIdOnAChildElementDoesNotCountForTheRoot() {
+        val root = rootText()
+            .replace(sampleRootTag, "<factura version=\"1.1.0\">")
+            .replace("<infoTributaria>", "<infoTributaria id=\"comprobante\">")
+        assertTrue("fixture must carry the decoy", root.contains("<infoTributaria id=\"comprobante\">"))
+        assertRefusedForRootId(root)
+    }
+
+    @Test
+    fun theIdIsFoundWhateverItsPositionAmongTheRootAttributes() {
+        val root = rootText().replace(sampleRootTag, "<factura a=\"1\" id=\"comprobante\" version=\"1.1.0\">")
+        val outcome = sign(documentOf(root))
+        assertTrue("got $outcome", outcome is Outcome.Ok)
+    }
+
+    @Test
+    fun aDocumentBuiltLikeTheGoldenOneStillSignsAndValidates() {
+        val signed = (sign(com.neoterux.easyfact.testing.GoldenAssetGenerator.unsignedDocument()) as Outcome.Ok).value
+        assertTrue(Jsr105Verifier.validate(signed.octets()))
+    }
+
     // --- nothing sensitive in an error or an identity ---------------------------------------
 
     @Test

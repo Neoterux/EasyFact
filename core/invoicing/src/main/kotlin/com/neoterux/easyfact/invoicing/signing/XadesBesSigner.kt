@@ -230,7 +230,9 @@ class XadesBesSigner(
      * A cheap structural check on [root], or `null` when it passes. It cannot prove canonical
      * form, since no parser exists in the portable subset; the proof is the identity test against
      * the JDK canonicalizer. It catches the mistakes that would silently produce a signature the
-     * SRI rejects.
+     * SRI rejects: invalid UTF-8, a root that is not `<factura ...>...</factura>`, a carriage
+     * return, a self-closing tag, and a root start tag without the attribute `id="comprobante"`
+     * that the document reference `URI="#comprobante"` resolves to.
      */
     private fun canonicalProblem(root: ByteArray): String? {
         val text = try {
@@ -249,7 +251,33 @@ class XadesBesSigner(
         if (!text.endsWith(CLOSE)) return "root does not end with $CLOSE"
         if (text.indexOf('\r') >= 0) return "root contains a carriage return"
         if (hasSelfClosingTag(text)) return "root contains a self-closing tag"
+        if (!rootCarriesComprobanteId(text)) return "root does not carry id=\"comprobante\", the target of the document reference"
         return null
+    }
+
+    /**
+     * Whether the start tag of the root has an attribute named exactly `id` with the value exactly
+     * `comprobante`. The tag is read attribute by attribute, honouring double-quoted values, so the
+     * text `id="comprobante"` inside another attribute's value, an attribute whose name merely ends
+     * in `id`, `ID` in another case, and an `id` on a child element are all refused. The document
+     * reference is `URI="#comprobante"`: a root without this attribute leaves it unresolvable.
+     */
+    private fun rootCarriesComprobanteId(text: String): Boolean {
+        var i = "<factura".length
+        while (i < text.length) {
+            while (i < text.length && text[i] == ' ') i++
+            if (i >= text.length || text[i] == '>') return false
+            val nameStart = i
+            while (i < text.length && text[i] != '=' && text[i] != ' ' && text[i] != '>') i++
+            if (i + 1 >= text.length || text[i] != '=' || text[i + 1] != '"') return false
+            val name = text.substring(nameStart, i)
+            val valueStart = i + 2
+            val valueEnd = text.indexOf('"', valueStart)
+            if (valueEnd < 0) return false
+            if (name == "id" && text.substring(valueStart, valueEnd) == "comprobante") return true
+            i = valueEnd + 1
+        }
+        return false
     }
 
     /** Scans tags, skipping quoted attribute values so a `/>` inside a value is not mistaken for a tag end. */
