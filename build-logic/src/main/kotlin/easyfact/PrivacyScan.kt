@@ -17,6 +17,8 @@
 
 package easyfact
 
+import java.util.Locale
+
 /**
  * Pure identifier-shape policy over the text of git-tracked files. No Gradle types, so it runs in
  * a JVM unit test.
@@ -128,8 +130,41 @@ object PrivacyScan {
             "nothing else. It cannot see a value split across lines or concatenated at runtime, an " +
             "identifier encoded in base64 or held inside a binary file (binary files are skipped and " +
             "counted), a real name or address (which have no shape), anything in an untracked file, " +
-            "or anything committed to git history before this gate existed. A green run is not proof " +
-            "that nothing private is published; review remains the control for what a shape cannot express."
+            "or anything committed to git history before this gate existed. Files with the extensions " +
+            "p12, pfx, jks, keystore, pem and key are refused by path whatever their content, but a " +
+            "key store or key renamed to any other extension is not seen by that rule. A green run is " +
+            "not proof that nothing private is published; review remains the control for what a shape " +
+            "cannot express."
+
+    /**
+     * The file extensions of key material, compared case-insensitively against the extension of
+     * the last path segment. AGENTS.md section 2.2 forbids the first four; `pem` and `key` were
+     * added by the repository owner and are also ignored by `.gitignore`, which a forced add
+     * bypasses. A file with one of these extensions is refused whatever it contains, because the
+     * content rules cannot see a DER store.
+     */
+    val KEY_MATERIAL_EXTENSIONS: Set<String> = setOf("p12", "pfx", "jks", "keystore", "pem", "key")
+
+    /**
+     * `PRIVACY keyMaterialFile <path>` for every tracked path whose last segment ends in one of
+     * [KEY_MATERIAL_EXTENSIONS]. The extension is the text after the segment's last dot, and the
+     * match is membership of that whole extension: never a prefix, suffix or substring test, so
+     * `Keystore.kt`, `p12-notes.md`, `layout.keyboard` and an extensionless `monkey` pass. A
+     * dot-only name such as `.p12` has the extension `p12` and is refused. The result is sorted and
+     * de-duplicated, and carries the path only, never any content.
+     */
+    fun keyMaterialPathViolations(trackedPaths: List<String>): List<String> {
+        val result = sortedSetOf<String>()
+        for (path in trackedPaths) {
+            val segment = path.substringAfterLast('/')
+            if (!segment.contains('.')) continue
+            val extension = segment.substringAfterLast('.').lowercase(Locale.ROOT)
+            if (extension in KEY_MATERIAL_EXTENSIONS) {
+                result += "PRIVACY keyMaterialFile $path"
+            }
+        }
+        return result.toList()
+    }
 
     /**
      * `PRIVACY <rule> <path>:<line>` for every line of every file that matches a rule and is not

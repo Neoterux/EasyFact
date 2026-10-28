@@ -291,6 +291,83 @@ class PrivacyScanTest {
         )
     }
 
+    // ---- Key-material path rule ------------------------------------------------------------------
+
+    @Test
+    fun everyKeyMaterialShapeIsRefusedByPathWithTheExactLine() {
+        val paths = listOf(
+            "release.keystore",
+            "certs/Signer.P12",
+            "a/b/x.pfx",
+            "deep/dir/store.JKS",
+            ".p12",
+            "certs/server.pem",
+            "certs/CHAIN.PEM",
+            "secrets/signing.key",
+        )
+
+        for (path in paths) {
+            assertEquals(
+                "path $path",
+                listOf("PRIVACY keyMaterialFile $path"),
+                PrivacyScan.keyMaterialPathViolations(listOf(path)),
+            )
+        }
+    }
+
+    @Test
+    fun pathsThatOnlyMentionTheWordsAreNotKeyMaterial() {
+        val paths = listOf(
+            "docs/p12-notes.md",
+            "src/Keystore.kt",
+            "spike/Signer.p12.txt",
+            "keystore/README.md",
+            "app/keystore.properties",
+            "assets/layout.keyboard",
+            "docs/monkey.txt",
+            "bin/monkey",
+        )
+
+        for (path in paths) {
+            assertEquals("path $path", emptyList<String>(), PrivacyScan.keyMaterialPathViolations(listOf(path)))
+        }
+    }
+
+    @Test
+    fun theKeyMaterialExtensionSetIsExactlyTheSixOwnerChose() {
+        assertEquals(setOf("p12", "pfx", "jks", "keystore", "pem", "key"), PrivacyScan.KEY_MATERIAL_EXTENSIONS)
+    }
+
+    @Test
+    fun theKeyMaterialPathResultIsSortedDeduplicatedAndNamesOnlyThePath() {
+        val result = PrivacyScan.keyMaterialPathViolations(
+            listOf("z/b.pem", "a/a.P12", "z/b.pem", "ok/readme.md"),
+        )
+
+        assertEquals(listOf("PRIVACY keyMaterialFile a/a.P12", "PRIVACY keyMaterialFile z/b.pem"), result)
+    }
+
+    @Test
+    fun theContentRulesAreUnaffectedByThePathRule() {
+        // A key-material path with innocent content has no content violation, and a content
+        // violation in an ordinary path has no path violation: the two checks are independent.
+        assertEquals(emptyList<String>(), PrivacyScan.violations(listOf(file("plain", path = "certs/a.p12"))))
+        assertEquals(emptyList<String>(), PrivacyScan.keyMaterialPathViolations(listOf("src/Example.kt")))
+        assertEquals(
+            listOf("PRIVACY ruc13 src/Example.kt:1"),
+            PrivacyScan.violations(listOf(file(digits(13)))),
+        )
+    }
+
+    @Test
+    fun residualGapStatesThePathRuleAndTheRenamedStoreBlindSpot() {
+        val gap = PrivacyScan.RESIDUAL_GAP.lowercase()
+
+        assertTrue("six extensions", listOf("p12", "pfx", "jks", "keystore", "pem", "key").all { it in gap })
+        assertTrue("refused by path", "refused by path" in gap)
+        assertTrue("renamed", "renamed" in gap)
+    }
+
     @Test
     fun thisTestSourceIsCleanUnderItsOwnGate() {
         val self = java.io.File("src/test/kotlin/easyfact/PrivacyScanTest.kt")

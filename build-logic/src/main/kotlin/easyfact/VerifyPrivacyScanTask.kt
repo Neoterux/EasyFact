@@ -47,6 +47,10 @@ import org.gradle.process.ExecOperations
  * On a violation the message carries rule, path and line only (see [PrivacyScan]). On success the
  * counts and [PrivacyScan.RESIDUAL_GAP] are printed, because a green run proves less than it
  * appears to. The task is untracked so it runs, and prints, on every invocation.
+ *
+ * Every tracked path is also checked against [PrivacyScan.KEY_MATERIAL_EXTENSIONS] before any
+ * skip, so a tracked key store fails the gate by its file type even though it counts as binary or
+ * is absent from the working tree.
  */
 @UntrackedTask(because = "Lists tracked files from git on every run and prints the residual-gap statement")
 abstract class VerifyPrivacyScanTask : DefaultTask() {
@@ -81,6 +85,11 @@ abstract class VerifyPrivacyScanTask : DefaultTask() {
             )
         }
 
+        // The path rule runs over every tracked path before any skip: a key store is refused even
+        // when it counts as binary or is absent from the working tree, because git would still
+        // publish it.
+        val pathViolations = PrivacyScan.keyMaterialPathViolations(tracked)
+
         val scanned = ArrayList<PrivacyScan.ScannedFile>()
         var skippedBinary = 0
         var skippedMissing = 0
@@ -108,14 +117,16 @@ abstract class VerifyPrivacyScanTask : DefaultTask() {
         }
 
         val allowlist = PrivacyScan.Allowlist(syntheticRuc.get(), allowedEmailDomain.get())
-        val violations = PrivacyScan.violations(scanned, allowlist)
+        val violations = (pathViolations + PrivacyScan.violations(scanned, allowlist)).toSortedSet().toList()
         val summary = "Scanned ${scanned.size} tracked file(s); skipped $skippedBinary as binary" +
-            (if (skippedMissing > 0) " and $skippedMissing absent from the working tree" else "") + "."
+            (if (skippedMissing > 0) " and $skippedMissing absent from the working tree" else "") +
+            "; checked ${tracked.size} tracked path(s) against the key-material extension rule."
         println(summary)
         if (violations.isNotEmpty()) {
             throw GradleException(
-                "Privacy scan found identifier-shaped content in tracked files. Fix the file; do not " +
-                    "loosen the rule. The matched value is deliberately not printed.\n" +
+                "Privacy scan found identifier-shaped content or key-material files in tracked paths. " +
+                    "Fix the file or remove it from git; do not loosen the rule. The matched value is " +
+                    "deliberately not printed.\n" +
                     violations.joinToString("\n") { "  $it" } +
                     "\n" + PrivacyScan.RESIDUAL_GAP,
             )
