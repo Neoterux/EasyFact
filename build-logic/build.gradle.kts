@@ -22,6 +22,8 @@ plugins {
 dependencies {
     // AGP variant API types (ApplicationAndroidComponentsExtension, ApplicationVariant, ...).
     compileOnly(libs.agpGradleApi)
+    // Test scope only: the URL-host task test fakes BuiltArtifactsLoader/BuiltArtifacts, which are AGP types.
+    testImplementation(libs.agpGradleApi)
     testImplementation(libs.junit)
 }
 
