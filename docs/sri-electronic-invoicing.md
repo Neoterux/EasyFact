@@ -197,6 +197,88 @@ Practical notes:
   development loop, but a spike with the real certificate against `celcer` is
   required to close the gap.
 
+**Status of the test-environment round trip (as of 2026-10-28): not yet run.**
+No document built by this project has been submitted to the SRI. The run with
+a real certificate against `celcer` is reserved for the repository owner once
+the app is complete, so nothing in this section is an observation of SRI
+behaviour. Until then the evidence for the signature is offline only: two
+independent verifiers, the JDK's XML-DSig implementation and xades4j, accept
+the signer's output as XAdES-BES, and the unsigned document validates against
+the published `factura` 1.1.0 schema. Neither proves that the SRI accepts the
+signature, and the certificate-dependent failures listed above can only
+surface in that run. The issuer-name rendering that the SRI accepts is
+therefore still unknown.
+
+Element set prepared for the first test-environment submission — the probe
+document carries exactly these element paths, in document order. This list
+records what the probe document carried on the date above and is not updated
+when the writer later emits more.
+
+```
+factura
+factura/infoTributaria
+factura/infoTributaria/ambiente
+factura/infoTributaria/tipoEmision
+factura/infoTributaria/razonSocial
+factura/infoTributaria/nombreComercial
+factura/infoTributaria/ruc
+factura/infoTributaria/claveAcceso
+factura/infoTributaria/codDoc
+factura/infoTributaria/estab
+factura/infoTributaria/ptoEmi
+factura/infoTributaria/secuencial
+factura/infoTributaria/dirMatriz
+factura/infoFactura
+factura/infoFactura/fechaEmision
+factura/infoFactura/dirEstablecimiento
+factura/infoFactura/obligadoContabilidad
+factura/infoFactura/tipoIdentificacionComprador
+factura/infoFactura/razonSocialComprador
+factura/infoFactura/identificacionComprador
+factura/infoFactura/totalSinImpuestos
+factura/infoFactura/totalDescuento
+factura/infoFactura/totalConImpuestos
+factura/infoFactura/totalConImpuestos/totalImpuesto
+factura/infoFactura/totalConImpuestos/totalImpuesto/codigo
+factura/infoFactura/totalConImpuestos/totalImpuesto/codigoPorcentaje
+factura/infoFactura/totalConImpuestos/totalImpuesto/baseImponible
+factura/infoFactura/totalConImpuestos/totalImpuesto/valor
+factura/infoFactura/propina
+factura/infoFactura/importeTotal
+factura/infoFactura/moneda
+factura/infoFactura/pagos
+factura/infoFactura/pagos/pago
+factura/infoFactura/pagos/pago/formaPago
+factura/infoFactura/pagos/pago/total
+factura/detalles
+factura/detalles/detalle
+factura/detalles/detalle/codigoPrincipal
+factura/detalles/detalle/descripcion
+factura/detalles/detalle/cantidad
+factura/detalles/detalle/precioUnitario
+factura/detalles/detalle/descuento
+factura/detalles/detalle/precioTotalSinImpuesto
+factura/detalles/detalle/impuestos
+factura/detalles/detalle/impuestos/impuesto
+factura/detalles/detalle/impuestos/impuesto/codigo
+factura/detalles/detalle/impuestos/impuesto/codigoPorcentaje
+factura/detalles/detalle/impuestos/impuesto/tarifa
+factura/detalles/detalle/impuestos/impuesto/baseImponible
+factura/detalles/detalle/impuestos/impuesto/valor
+```
+
+Blocks not carried — the `factura` 1.1.0 elements the probe document leaves
+out: `contribuyenteEspecial`, `agenteRetencion` and `contribuyenteRimpe` in
+the tax header; `comercioExterior` and the other export fields,
+`guiaRemision`, `direccionComprador`, `totalSubsidio`, the reimbursement
+totals and `compensaciones` in the invoice header; `codigoAuxiliar`,
+`unidadMedida`, `detallesAdicionales` and any tax line beyond the single one
+in the line item; any `detalle` beyond the first; and `reembolsos`,
+`retenciones`, `tipoNegociable`, `maquinaFiscal` and `infoAdicional` at the
+document level. When the run happens, its verdict covers only the element set
+above: a later rejection that names one of these blocks is a completeness
+result, not a verdict on the signature.
+
 ## 7. Web services
 
 SOAP, same paths on both hosts:
@@ -226,6 +308,15 @@ https://{host}/comprobantes-electronicos-ws/AutorizacionComprobantesOffline?wsdl
 - **Errors 39, 52 and 58 arrive as `RECIBIDA` followed by `NO AUTORIZADO`**,
   not as `DEVUELTA`. Acceptance at reception proves nothing.
 - `DEVUELTA` documents are **not stored** by SRI.
+
+**Response shape — modelled, not observed.** The value-stripped envelopes in
+`core/invoicing/src/test/resources/fixtures/sri/` (`structure-only-recepcion.xml`
+and `structure-only-autorizacion.xml`) are modelled from this section and from
+public SRI samples. No answer has been captured from the SRI. They keep element
+names and nesting only. The SOAP wrapper names have not been checked against the
+service WSDL, so the reader matches on local names. Reception-to-authorization
+latency has not been measured either: the 24-hour figure below is the
+specification's ceiling, not an observation.
 
 ### Timing and retry
 
@@ -414,11 +505,39 @@ Still open — resolve in the `celcer` test environment before production:
 4. Whether Annex 26 "RUC Proveedor" applies to a self-distributed
    open-source app.
 5. Whether real CA-issued `.p12` files load through Android's PKCS12
-   keystore on API 31+.
+   keystore on API 31+. Partly measured with synthetic files: on API 31 the
+   platform keystore refuses the modern AES-256/HmacSHA256 PKCS#12 encoding
+   and opens the legacy PBE one, while API 34 and 37 open both. API 32 and 33
+   are unmeasured. A real CA file has not been tried on any level.
 6. Any published rounding tolerance behind error 52.
 7. Document retention obligations (7 years is reported; Art. 41 text
    unconfirmed).
 8. Which IVA code applies to the issuer's services — a tax-advice question.
+9. Whether the SRI accepts this project's signature at all, and which
+   `X509IssuerName` rendering it accepts. No submission has been made, so
+   both remain open until the owner's real-certificate run.
+10. Behaviours to probe in the test environment before production: where
+    errors 39 and 52 surface; reception-to-authorization latency as a
+    distribution, not a single figure; the error-65 tolerance; resend
+    semantics; what authorization answers for an unknown key or one still
+    being processed; which amount mismatch produces 52; whether an
+    `ambiente` mismatch produces 58; and the full set of authorization state
+    strings.
+11. Whether the submission is accepted with the XML declaration present in
+    the transmitted bytes, as the Ficha requires.
+12. Whether the SOAP wrapper names in the modelled response fixtures match
+    the service WSDL.
+13. Which file the SRI portal hands out as the customer-facing authorized
+    XML, and whether it matches the `<autorizacion>` envelope. This needs an
+    owner-side download and comparison.
+14. Whether the test environment accepts a document carrying the blocks
+    listed under "Blocks not carried" in section 6. No submission has yet
+    exercised them.
+15. Which published revision of `factura_V1.1.0.xsd` is current. The copy
+    vendored for the schema gate declares no `ds:Signature` inside
+    `<factura>`, so signed documents cannot be schema-validated against it
+    and the gate validates the unsigned document. Another circulating
+    revision does declare it.
 
 ## 12. Sources
 
