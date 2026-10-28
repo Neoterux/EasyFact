@@ -527,6 +527,10 @@ class FacturaWriterTest {
         val tooShort = error(base.copy(invoiceInfo = base.invoiceInfo.copy(specialTaxpayerNumber = "zq"))).toString()
         assertTrue(tooShort, tooShort.startsWith("FieldTooShort("))
         assertFalse(tooShort, tooShort.contains("zq"))
+        val amount = error(base.copy(invoiceInfo = base.invoiceInfo.copy(grandTotal = BigDecimal("-424242.42")))).toString()
+        assertTrue(amount, amount.startsWith("DecimalOutOfRange("))
+        assertTrue(amount, amount.contains("importeTotal") && amount.contains("minInclusive") && amount.contains("limit=0"))
+        assertFalse(amount, amount.contains("424242"))
     }
 
     // ---- the full document still signs and verifies -------------------------------------------
