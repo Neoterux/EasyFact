@@ -115,6 +115,51 @@ class AccessKeyTest {
     }
 
     @Test
+    fun everySegmentAccessorReturnsExactlyItsOwnSegment() {
+        // Each value is different from its neighbours, so an off-by-one range cannot pass by luck.
+        val key = key(
+            build(
+                issueDate = LocalDate.of(2012, 3, 5),
+                documentTypeCode = "07",
+                environmentCode = "2",
+                establishment = "014",
+                emissionPoint = "025",
+                sequential = 123_456_789L,
+                numericCode = "87654321",
+                emissionTypeCode = "2",
+            ),
+        )
+        assertEquals("05032012", key.issueDateSegment)
+        assertEquals("07", key.documentTypeSegment)
+        assertEquals(SyntheticIdentifiers.RUC, key.issuerRucSegment)
+        assertEquals('2', key.environmentDigit)
+        assertEquals("014", key.establishmentSegment)
+        assertEquals("025", key.emissionPointSegment)
+        assertEquals("123456789", key.sequentialSegment)
+        assertEquals('2', key.emissionTypeDigit)
+    }
+
+    @Test
+    fun theSequentialSegmentIsTheZeroPaddedSequential() {
+        assertEquals("000000007", key(build(sequential = 7L)).sequentialSegment)
+    }
+
+    @Test
+    fun theSegmentAccessorsAndTheNumericCodeTileTheKeyWithoutOverlap() {
+        val key = key()
+        val rebuilt = key.issueDateSegment + key.documentTypeSegment + key.issuerRucSegment + key.environmentDigit +
+            key.establishmentSegment + key.emissionPointSegment + key.sequentialSegment + "12345678" + key.emissionTypeDigit
+        assertEquals(key.digits.substring(0, 48), rebuilt)
+    }
+
+    @Test
+    fun theSegmentAccessorsDoNotRenderThroughToString() {
+        val rendered = key().toString()
+        assertFalse(rendered.contains(key().issueDateSegment))
+        assertFalse(rendered.contains(key().sequentialSegment))
+    }
+
+    @Test
     fun theSequentialIsZeroPaddedToNineDigits() {
         assertEquals("000000007", key(build(sequential = 7L)).digits.substring(30, 39))
         assertEquals("999999999", key(build(sequential = 999_999_999L)).digits.substring(30, 39))

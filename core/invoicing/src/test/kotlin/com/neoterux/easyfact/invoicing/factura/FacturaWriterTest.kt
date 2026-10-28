@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.factura
 
+import com.neoterux.easyfact.invoicing.accesskey.AccessKey
 import com.neoterux.easyfact.invoicing.result.Outcome
 import com.neoterux.easyfact.invoicing.signing.FixedIdSource
 import com.neoterux.easyfact.invoicing.signing.Rfc2253Jdk
@@ -25,6 +26,7 @@ import com.neoterux.easyfact.invoicing.signing.XadesBesSigner
 import com.neoterux.easyfact.invoicing.verify.C14nIdentityOracle
 import com.neoterux.easyfact.invoicing.verify.Jsr105Verifier
 import com.neoterux.easyfact.invoicing.verify.XsdGate
+import com.neoterux.easyfact.testing.SyntheticIdentifiers
 import java.math.BigDecimal
 import java.time.LocalDate
 import org.junit.Assert.assertArrayEquals
@@ -561,6 +563,114 @@ class FacturaWriterTest {
         assertTrue(rootXml().contains("<claveAcceso>$digits</claveAcceso>"))
     }
 
+    // ---- a key must belong to the document it is written into ---------------------------------
+
+    /**
+     * A key built with the sample factura's identity, except for whatever is overridden: the
+     * defaults are exactly the sample's own, so an override produces a key cut for another document.
+     */
+    private fun keyFor(
+        issueDate: LocalDate = LocalDate.of(2026, 10, 27),
+        documentTypeCode: String = "01",
+        issuerRuc: String = SyntheticIdentifiers.RUC,
+        environmentCode: String = "1",
+        establishment: String = "001",
+        emissionPoint: String = "003",
+        sequential: Long = 990064L,
+        emissionTypeCode: String = "1",
+    ): AccessKey = (
+        AccessKey.of(
+            issueDate, documentTypeCode, issuerRuc, environmentCode, establishment, emissionPoint,
+            sequential, "12345678", emissionTypeCode,
+        ) as Outcome.Ok
+        ).value
+
+    private fun withKey(key: AccessKey): Factura {
+        val base = SampleFactura.factura()
+        return base.copy(taxInfo = base.taxInfo.copy(accessKey = key))
+    }
+
+    private fun mismatch(sibling: String) = FacturaError.AccessKeyMismatch("claveAcceso", sibling)
+
+    @Test
+    fun theSampleKeyAgreesWithTheSampleFields() {
+        assertEquals(keyFor(), SampleFactura.factura().taxInfo.accessKey)
+        assertWritesAndValidates(withKey(keyFor()))
+    }
+
+    @Test
+    fun aKeyForAnotherIssueDateIsRefused() {
+        assertEquals(mismatch("fechaEmision"), error(withKey(keyFor(issueDate = LocalDate.of(2026, 10, 26)))))
+    }
+
+    @Test
+    fun aKeyForAnotherDocumentTypeIsRefused() {
+        assertEquals(mismatch("codDoc"), error(withKey(keyFor(documentTypeCode = "04"))))
+    }
+
+    @Test
+    fun aKeyForAnotherRucIsRefused() {
+        val other = "8" + SyntheticIdentifiers.RUC.substring(1)
+        assertEquals(mismatch("ruc"), error(withKey(keyFor(issuerRuc = other))))
+    }
+
+    @Test
+    fun aKeyForAnotherEnvironmentIsRefused() {
+        assertEquals(mismatch("ambiente"), error(withKey(keyFor(environmentCode = "2"))))
+    }
+
+    @Test
+    fun aKeyForAnotherEstablishmentIsRefused() {
+        assertEquals(mismatch("estab"), error(withKey(keyFor(establishment = "002"))))
+    }
+
+    @Test
+    fun aKeyForAnotherEmissionPointIsRefused() {
+        assertEquals(mismatch("ptoEmi"), error(withKey(keyFor(emissionPoint = "004"))))
+    }
+
+    @Test
+    fun aKeyForAnotherSequentialIsRefused() {
+        assertEquals(mismatch("secuencial"), error(withKey(keyFor(sequential = 990065L))))
+    }
+
+    @Test
+    fun aKeyForAnotherEmissionTypeIsRefused() {
+        assertEquals(mismatch("tipoEmision"), error(withKey(keyFor(emissionTypeCode = "2"))))
+    }
+
+    @Test
+    fun whenTwoSegmentsDisagreeTheFirstInKeyOrderIsReported() {
+        val key = keyFor(
+            issueDate = LocalDate.of(2026, 10, 26),
+            documentTypeCode = "04",
+            environmentCode = "2",
+            sequential = 990065L,
+        )
+        assertEquals(mismatch("fechaEmision"), error(withKey(key)))
+        val later = keyFor(environmentCode = "2", sequential = 990065L, emissionTypeCode = "2")
+        assertEquals(mismatch("ambiente"), error(withKey(later)))
+    }
+
+    @Test
+    fun aFieldsOwnFormatErrorIsReportedBeforeTheKeyAgreement() {
+        val base = withKey(keyFor(issueDate = LocalDate.of(2026, 10, 26)))
+        val broken = base.copy(taxInfo = base.taxInfo.copy(headOfficeAddress = "Line\nBreak"))
+        assertEquals(FacturaError.InvalidFormat("dirMatriz"), error(broken))
+    }
+
+    @Test
+    fun aKeyMismatchRendersElementNamesOnly() {
+        val key = keyFor(issuerRuc = "8" + SyntheticIdentifiers.RUC.substring(1), sequential = 990065L)
+        val rendered = error(withKey(key)).toString()
+        assertEquals("AccessKeyMismatch(element=claveAcceso, disagreesWith=ruc)", rendered)
+        assertFalse(rendered, rendered.contains(key.digits))
+        assertFalse(rendered, rendered.contains(key.issuerRucSegment))
+        assertFalse(rendered, rendered.contains(SyntheticIdentifiers.RUC))
+        assertFalse(rendered, rendered.contains(key.sequentialSegment))
+        assertFalse(rendered, key.digits.windowed(8).any { rendered.contains(it) })
+    }
+
     @Test
     fun aFreeTextRimpeLegendIsInvalidFormat() {
         val base = SampleFactura.factura()
@@ -639,10 +749,12 @@ class FacturaWriterTest {
 
     @Test
     fun anIssueDateInNineteenNinetyNineIsInvalidFormat() {
-        val base = SampleFactura.factura()
+        // The key is cut for the same date, so the date's own format error is what is reported.
+        val date = LocalDate.of(1999, 1, 1)
+        val base = withKey(keyFor(issueDate = date))
         assertEquals(
             FacturaError.InvalidFormat("fechaEmision"),
-            error(base.copy(invoiceInfo = base.invoiceInfo.copy(issueDate = LocalDate.of(1999, 1, 1)))),
+            error(base.copy(invoiceInfo = base.invoiceInfo.copy(issueDate = date))),
         )
     }
 

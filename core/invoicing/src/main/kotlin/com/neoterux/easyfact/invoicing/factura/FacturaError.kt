@@ -114,4 +114,16 @@ sealed interface FacturaError {
      * it carries the name only.
      */
     data class EmptyCollection(override val element: String) : FacturaError
+
+    /**
+     * The access key and the document disagree: [element] is always `claveAcceso`, and
+     * [disagreesWith] is the SRI element name of the first sibling field, in key order, whose value
+     * differs from the key's own segment. A key cut for another document would be signed, rejected
+     * by the SRI, and leave the sequential spent. Both fields are element names; no digit of the key,
+     * no RUC and no sequential is ever carried, because an error is rendered into diagnostics.
+     */
+    data class AccessKeyMismatch(
+        override val element: String,
+        val disagreesWith: String,
+    ) : FacturaError
 }

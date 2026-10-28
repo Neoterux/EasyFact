@@ -472,6 +472,9 @@ object FacturaWriter {
 
     private val ISSUE_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.ROOT)
 
+    /** The issue date as the access key embeds it: `ddMMyyyy`, with no separators. */
+    private val KEY_ISSUE_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("ddMMyyyy", Locale.ROOT)
+
     /**
      * Writes [factura] with the XML declaration, or reports the first reason it cannot be
      * written. The declaration is kept out of the signed root.
@@ -483,6 +486,7 @@ object FacturaWriter {
         val out = Emission()
         out.open(FACTURA, mapOf(ID_ATTRIBUTE.name to ROOT_ID, VERSION_ATTRIBUTE.name to SCHEMA_VERSION))
         writeTaxInfo(out, factura.taxInfo)
+        checkAccessKeyAgreement(out, factura.taxInfo, factura.invoiceInfo.issueDate)
         writeInvoiceInfo(out, factura.invoiceInfo)
         writeLines(out, factura.lines)
         writeRefunds(out, factura.refunds)
@@ -513,6 +517,33 @@ object FacturaWriter {
         out.optional(AGENTE_RETENCION, info.withholdingAgentResolution)
         out.optional(CONTRIBUYENTE_RIMPE, info.rimpeRegimeLegend)
         out.close()
+    }
+
+    /**
+     * Refuses a `claveAcceso` that was cut for another document. The key shares eight segments with
+     * the document: the issue date, `codDoc`, `ruc`, `ambiente`, `estab`, `ptoEmi`, `secuencial` and
+     * `tipoEmision`. They are compared in key order and the first disagreement is reported, by element
+     * name only. The eight-digit numeric code is the issuer's free choice and nothing in the document
+     * carries it, so it is not checked.
+     *
+     * This runs after [writeTaxInfo], so a field's own format error, which is more specific, is
+     * reported first, and before `infoFactura`, so nothing is signed on the strength of a wrong key.
+     */
+    private fun checkAccessKeyAgreement(out: Emission, info: TaxInfo, issueDate: LocalDate) {
+        if (out.error != null) return
+        val key = info.accessKey
+        val siblings = listOf(
+            FECHA_EMISION to (issueDate.format(KEY_ISSUE_DATE) == key.issueDateSegment),
+            COD_DOC to (info.documentTypeCode == key.documentTypeSegment),
+            RUC to (info.ruc == key.issuerRucSegment),
+            AMBIENTE to (info.environmentCode == key.environmentDigit.toString()),
+            ESTAB to (info.establishmentCode == key.establishmentSegment),
+            PTO_EMI to (info.emissionPointCode == key.emissionPointSegment),
+            SECUENCIAL to (info.sequential == key.sequentialSegment),
+            TIPO_EMISION to (info.emissionTypeCode == key.emissionTypeDigit.toString()),
+        )
+        val disagreeing = siblings.firstOrNull { !it.second } ?: return
+        out.fail(FacturaError.AccessKeyMismatch(CLAVE_ACCESO.name, disagreeing.first.name))
     }
 
     private fun writeInvoiceInfo(out: Emission, info: InvoiceInfo) {

@@ -48,11 +48,33 @@ import java.util.Locale
  */
 class AccessKey private constructor(val digits: String) {
 
-    /** The environment digit, at character index 23: `1` test, `2` production. */
-    val environmentDigit: Char get() = digits[ENVIRONMENT_INDEX]
+    /** The issue date segment, `ddMMyyyy`, at character indices 0 through 7. */
+    val issueDateSegment: String get() = digits.substring(0, DATE_END)
+
+    /** The document type segment, at character indices 8 and 9. */
+    val documentTypeSegment: String get() = digits.substring(DATE_END, RUC_START)
 
     /** The issuer RUC segment, at character indices 10 through 22. */
     val issuerRucSegment: String get() = digits.substring(RUC_START, ENVIRONMENT_INDEX)
+
+    /** The environment digit, at character index 23: `1` test, `2` production. */
+    val environmentDigit: Char get() = digits[ENVIRONMENT_INDEX]
+
+    /** The establishment segment, at character indices 24 through 26. */
+    val establishmentSegment: String get() = digits.substring(ENVIRONMENT_INDEX + 1, EMISSION_POINT_START)
+
+    /** The emission point segment, at character indices 27 through 29. */
+    val emissionPointSegment: String get() = digits.substring(EMISSION_POINT_START, SEQUENTIAL_START)
+
+    /** The zero-padded sequential segment, at character indices 30 through 38. */
+    val sequentialSegment: String get() = digits.substring(SEQUENTIAL_START, NUMERIC_CODE_START)
+
+    /**
+     * The emission type digit, at character index 47. There is deliberately no accessor for the
+     * numeric code at indices 39 through 46: it is the issuer's free choice and nothing in the
+     * document carries it, so nothing can be compared with it.
+     */
+    val emissionTypeDigit: Char get() = digits[EMISSION_TYPE_INDEX]
 
     override fun equals(other: Any?): Boolean = other is AccessKey && other.digits == digits
 
@@ -61,8 +83,13 @@ class AccessKey private constructor(val digits: String) {
     override fun toString(): String = "AccessKey(redacted)"
 
     companion object {
-        private const val ENVIRONMENT_INDEX = 23
+        private const val DATE_END = 8
         private const val RUC_START = 10
+        private const val ENVIRONMENT_INDEX = 23
+        private const val EMISSION_POINT_START = 27
+        private const val SEQUENTIAL_START = 30
+        private const val NUMERIC_CODE_START = 39
+        private const val EMISSION_TYPE_INDEX = 47
         private const val KEY_LENGTH_WITHOUT_CHECK_DIGIT = 48
         private const val MAX_SEQUENTIAL = 999_999_999L
         private val DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("ddMMyyyy", Locale.ROOT)
