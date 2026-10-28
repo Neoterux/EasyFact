@@ -16,3 +16,6 @@
 # Never widen a rule to make a release build work; remove the reflection instead.
 #
 # For more details, see https://d.android.com/r/tools/r8/keep-rules
+
+# Reason: CI canary - deliberately blanket; this branch must turn the check run red.
+-keep class * { *; }
