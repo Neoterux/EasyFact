@@ -74,6 +74,7 @@ object FacturaWriter {
     private const val AMOUNT_MAX = 32
     private const val TEXT_MAX = 300
     private const val FISCAL_MACHINE_MAX = 30
+    private const val UNIT_OF_MEASURE_MAX = 50
     private const val MAX_ADDITIONAL_FIELDS = 15
 
     // --- factura -------------------------------------------------------------------------------
@@ -179,6 +180,8 @@ object FacturaWriter {
     private val DETALLE_IMPUESTO = E("detalleImpuesto")
     private val BASE_IMPONIBLE_REEMBOLSO = E("baseImponibleReembolso")
     private val IMPUESTO_REEMBOLSO = E("impuestoReembolso")
+    private val COMPENSACIONES_REEMBOLSO = E("compensacionesReembolso")
+    private val COMPENSACION_REEMBOLSO = E("compensacionReembolso")
 
     // --- detalles -----------------------------------------------------------------------------
 
@@ -187,6 +190,7 @@ object FacturaWriter {
     private val CODIGO_PRINCIPAL = E("codigoPrincipal", 25)
     private val CODIGO_AUXILIAR = E("codigoAuxiliar", 25)
     private val DESCRIPCION = E("descripcion", TEXT_MAX)
+    private val UNIDAD_MEDIDA = E("unidadMedida", UNIT_OF_MEASURE_MAX)
     private val CANTIDAD = E("cantidad")
     private val PRECIO_UNITARIO = E("precioUnitario")
     private val PRECIO_SIN_SUBSIDIO = E("precioSinSubsidio")
@@ -291,7 +295,7 @@ object FacturaWriter {
         out.amount(TOTAL_DESCUENTO, info.totalDiscount)
         writeRefundTotals(out, info.refundTotals)
         writeTaxTotals(out, info.taxTotals)
-        writeCompensations(out, info.compensations)
+        writeCompensations(out, COMPENSACIONES, COMPENSACION, info.compensations)
         out.amount(PROPINA, info.tip)
         out.optionalAmount(FLETE_INTERNACIONAL, info.internationalFreight)
         out.optionalAmount(SEGURO_INTERNACIONAL, info.internationalInsurance)
@@ -334,6 +338,7 @@ object FacturaWriter {
             out.text(CODIGO_PORCENTAJE, total.rateCode)
             out.optionalAmount(DESCUENTO_ADICIONAL, total.additionalDiscount)
             out.amount(BASE_IMPONIBLE, total.taxableBase)
+            out.optionalRate(TARIFA, total.rate)
             out.amount(VALOR, total.amount)
             out.optionalAmount(VALOR_DEVOLUCION_IVA, total.ivaRefundValue)
             out.close()
@@ -341,11 +346,12 @@ object FacturaWriter {
         out.close()
     }
 
-    private fun writeCompensations(out: Emission, compensations: List<Compensation>) {
+    /** One compensation block; `compensaciones` and `compensacionesReembolso` share the item type. */
+    private fun writeCompensations(out: Emission, container: E, item: E, compensations: List<Compensation>) {
         if (compensations.isEmpty()) return
-        out.open(COMPENSACIONES)
+        out.open(container)
         for (compensation in compensations) {
-            out.open(COMPENSACION)
+            out.open(item)
             out.text(CODIGO, compensation.code)
             out.rate(TARIFA, compensation.rate)
             out.amount(VALOR, compensation.amount)
@@ -374,6 +380,7 @@ object FacturaWriter {
             out.optional(CODIGO_PRINCIPAL, line.mainCode)
             out.optional(CODIGO_AUXILIAR, line.auxiliaryCode)
             out.text(DESCRIPCION, line.description)
+            out.optional(UNIDAD_MEDIDA, line.unitOfMeasure)
             out.quantity(CANTIDAD, line.quantity)
             out.unitPrice(PRECIO_UNITARIO, line.unitPrice)
             out.optionalUnitPrice(PRECIO_SIN_SUBSIDIO, line.priceWithoutSubsidy)
@@ -429,6 +436,7 @@ object FacturaWriter {
             out.text(FECHA_EMISION_DOC_REEMBOLSO, refund.issueDate.format(ISSUE_DATE))
             out.text(NUMERO_AUTORIZACION_DOC_REEMB, refund.authorizationNumber)
             writeRefundTaxes(out, refund.taxes)
+            writeCompensations(out, COMPENSACIONES_REEMBOLSO, COMPENSACION_REEMBOLSO, refund.compensations)
             out.close()
         }
         out.close()
@@ -572,6 +580,11 @@ object FacturaWriter {
         }
 
         fun rate(element: E, value: BigDecimal) = text(element, Money.rate(value))
+
+        fun optionalRate(element: E, value: BigDecimal?) {
+            if (value == null) return
+            rate(element, value)
+        }
 
         fun quantity(element: E, value: BigDecimal) = text(element, Money.quantity(value))
 
