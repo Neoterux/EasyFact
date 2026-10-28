@@ -52,10 +52,15 @@ import java.util.Locale
  * makes `cantidad * precioUnitario` disagree with `precioTotalSinImpuesto`, and that disagreement
  * is itself a rejection, so the wider scale is the safer of the two.
  *
- * **The vendored XSD is the authority, not this file.** The element order, the `maxLength` facets
- * in [Facet] and the catalogues in [Catalogues] are read from the Ficha Técnica and from the schema
- * excerpt recorded in the phase research. Plan 02-09 vendors `factura_V1.1.0.xsd` and fails the
- * build on a mismatch; where the two disagree, the schema wins and this file is corrected.
+ * **The vendored XSD is the authority, not this file.** The element order and the facets in
+ * [Facet] are copied by hand from `factura_V1.1.0.xsd`; the writer never reads the schema, at run
+ * time or otherwise. `FacturaFacetParityTest` reads the vendored schema in the test source set and
+ * fails the build when any length, occurrence or decimal facet differs from the schema, when a
+ * schema path has no facet, or when a facet names a path the schema lacks. Decimal facets judge the
+ * value as written, which is the value after [Money]'s half-up rounding, so a carry from rounding
+ * can push a value over `totalDigits`. Pattern and enumeration facets are not yet enforced by the
+ * writer; the catalogues in [Catalogues] cover only a handful of them. Where the table and the
+ * schema disagree, the schema wins and this file is corrected.
  */
 object FacturaWriter {
 
@@ -81,15 +86,18 @@ object FacturaWriter {
      * last segment without the at-sign: the element name that is emitted and the element name every
      * [FacturaError] reports.
      *
-     * [maxLength] is the schema's own `maxLength` facet, copied by hand and compared with the
-     * schema by a test on every build; it is `null` where the schema states none. [guardLength] is
-     * a bound that belongs to the writer alone and is never compared with the schema. It exists
-     * only where the schema states no `maxLength`, so that an element governed by a pattern or an
-     * enumeration, or by a decimal form [Money] already guarantees, is still bounded. A decimal
-     * element carries a guard that stands in until the schema's decimal facets are enforced, and a
-     * value within a guard may still be rejected by a pattern the schema applies.
+     * [maxLength] and [minLength] are the schema's own `maxLength` and `minLength` facets, and
+     * [maxOccurs] its repeat cap where that is greater than one; each is `null` where the schema
+     * states none. A decimal facet carries [totalDigits], [fractionDigits] and the four bounds
+     * [minInclusive], [maxInclusive], [minExclusive] and [maxExclusive], each `null` where the
+     * schema states none. All of them are copied by hand and compared with the schema by a test on
+     * every build. [guardLength] is a bound that belongs to the writer alone and is never compared
+     * with the schema. It exists only on a text facet whose schema type states no `maxLength`, so
+     * that an element governed by a pattern or an enumeration is still bounded; a value within a
+     * guard may still be rejected by a pattern the schema applies. A decimal facet carries none.
      *
-     * A value is bounded by [maxLength] when there is one, otherwise by [guardLength].
+     * A text value is bounded by [maxLength] when there is one, otherwise by [guardLength]; a
+     * decimal value is judged against its decimal facets by [decimalViolation].
      */
     internal data class Facet(
         val path: String,

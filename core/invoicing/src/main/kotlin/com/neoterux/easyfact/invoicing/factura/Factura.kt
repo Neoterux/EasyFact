@@ -36,9 +36,10 @@ import java.time.LocalDate
  * rather than emitting it with no content: the schema's `minLength` and pattern facets reject
  * empty content, and an empty element is a silent data loss at the domain boundary.
  *
- * Elements deliberately left unmodelled are listed in the plan 02-05 summary. Where this model
- * and the published XSD disagree, the XSD wins: plan 02-09 vendors it and fails the build on a
- * mismatch.
+ * The model covers every element and attribute of the vendored factura 1.1.0 schema. A test
+ * compares the writer's facet table with that schema on every build and fails when a schema path
+ * has no facet or a facet differs, and its list of deliberately unmodelled elements is empty. Where
+ * this model and the published schema disagree, the schema wins.
  */
 data class Factura(
     val taxInfo: TaxInfo,

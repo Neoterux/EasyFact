@@ -582,6 +582,46 @@ provider, an x86 emulator, or any API level between and beyond the three. The ke
 fixed seeds so the expected output is reproducible; they are synthetic and protect nothing. The golden
 assets live under `app/build/`, are added to the instrumented-test APK only, and are never tracked.
 
+## 15. Writer facet parity: `FacturaFacetParityTest` in `:core:invoicing:test`
+
+**What it enforces.** The writer copies the schema's facets by hand and never reads
+the schema, so this test is the only thing that ties the two together. Every length,
+occurrence and decimal facet in the writer's table (`maxLength`, `minLength`,
+`maxOccurs`, `totalDigits`, `fractionDigits`, `minInclusive` and the other numeric
+bounds) must equal the vendored `factura` 1.1.0 schema, and the kind of every entry
+(container, text, decimal) must agree with the schema's. Coverage holds in both
+directions: a schema path with no facet fails, and a facet whose path the schema lacks
+fails, against an explicit not-modelled list. That list is empty, because every
+element and attribute of the vendored revision is modelled, and a test asserts it
+stays empty. A document that carries every schema element must pass the schema gate
+in section 12. Decimal values are judged as written, after the half-up rounding the
+serialization applies, so a carry from rounding can push a value over `totalDigits`;
+boundary values are cross-checked against the schema gate in both directions, so the
+writer's digit counting cannot diverge from the validator's.
+
+**Command.** `./gradlew :core:invoicing:test` (reached by `check`).
+
+**Where the logic lives.** The table is `FacturaWriter.FACETS` in
+`core/invoicing/src/main/kotlin/.../factura/`. The comparison is a pure function in
+`FacturaFacetParityTest`, beside the test-source `SchemaModel` that reads the schema
+as data. The test carries committed failing fixtures (a wrong `maxLength`, `minLength`,
+`maxOccurs` and `totalDigits`, a stray guard on a decimal facet, a missing facet and a
+misspelt path), each of which the comparison must report.
+`FacturaDecimalFacetTest` holds the boundary, rounding and ordering cases and walks a
+document carrying every element to check that each decimal is written with exactly its
+`fractionDigits`. `FacturaSchemaCoverageTest` writes the every-element document and
+validates it with the schema gate.
+
+**What it cannot see.** Pattern and enumeration facets are not yet enforced by the
+writer, so a value the schema's pattern rejects can still be written; a small
+catalogue check covers a handful of codes and nothing more. It compares the writer
+with the vendored revision only, so a different published revision is invisible to
+it. The writer mirrors the schema, not business sense: a value the schema allows but
+the business would not (a negative total discount, whose schema type states no lower
+bound) is written. And a facet the schema reader does not understand makes the
+reader fail loudly rather than being half-read, which is a deliberate stop and not
+a pass.
+
 ## Device-to-device transfer is UNVERIFIED
 
 Nothing in this repository proves that device-to-device transfer excludes app
