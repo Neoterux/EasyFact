@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.transport
 
+import com.neoterux.easyfact.invoicing.probe.ThrowawaySoap
 import com.neoterux.easyfact.invoicing.signing.SignedDocument
 
 /**
@@ -28,6 +29,9 @@ import com.neoterux.easyfact.invoicing.signing.SignedDocument
  * transmitted what it was given. Recording closes that gap: the comparison runs
  * `SignedDocument.octets()` -> [encodedOctets] -> decoded payload, and every link is the same
  * array.
+ *
+ * The envelope comes from [ThrowawaySoap.recepcionEnvelope], which is the template the probe
+ * actually posts, so the payload under test is the payload that would be transmitted.
  */
 class RecordingTransport : DocumentTransport {
 
@@ -37,5 +41,10 @@ class RecordingTransport : DocumentTransport {
     val encodedOctets: ByteArray
         get() = checkNotNull(recorded) { "nothing has been submitted yet" }.copyOf()
 
-    override fun submit(document: SignedDocument): String = TODO("RED: the honest transport is not implemented yet")
+    override fun submit(document: SignedDocument): String {
+        // Straight from the type to the encoder: no parse, no serializer, no intermediate string.
+        val octets = document.octets()
+        recorded = octets
+        return ThrowawaySoap.recepcionEnvelope(octets)
+    }
 }

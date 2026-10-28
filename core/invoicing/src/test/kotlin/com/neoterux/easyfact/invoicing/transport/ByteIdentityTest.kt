@@ -43,12 +43,19 @@ import org.junit.Test
  * independently produced documents agreeing would prove the signer is deterministic rather than
  * prove the transport transmitted what it was handed.
  *
- * [ReserializingTransport] is the committed way to fail this test. Its cases assert that the
- * re-serialized payload differs AND that it no longer validates in either verifier — a
- * difference that did not break the signature would be a weaker result than SRI-05 claims.
+ * [ReserializingTransport] is the committed way to fail this test, and it fails it in two
+ * distinct ways that are both worth having:
  *
- * Every verification claim here names its oracle: the JDK's JSR-105 implementation, or xades4j.
- * Neither is the SRI, and nothing in this file says anything about what the SRI accepts.
+ * - **Conservative** (`reformat = false`): the bytes change and both verifiers still accept
+ *   them. Inclusive C14N normalises the self-closing tags and the rewritten declaration away
+ *   again before the digest is taken. This is the reason SRI-05 is asserted on octets rather
+ *   than inferred from a verifier — a green verifier is simply not the same claim.
+ * - **Reformatting** (`reformat = true`): indentation inserts whitespace text nodes inside the
+ *   digested root, which canonicalization preserves, and both verifiers reject the result.
+ *
+ * Every verification claim here names its oracle: the JDK's JSR-105 implementation, or
+ * xades4j 2.4.1. Neither is the SRI, and nothing in this file says anything about what the SRI
+ * accepts, authorizes or validates.
  */
 class ByteIdentityTest {
 
@@ -122,11 +129,9 @@ class ByteIdentityTest {
         val decoded = payloadOf(transport.submit(signed))
 
         // The case is only real if the multi-byte sequences actually reached the signed octets.
-        assertTrue(
-            "the fixture must contain non-ASCII text",
-            String(signed.octets(), Charsets.UTF_8).contains("Ñandú Ávila Güéllar"),
-        )
-        assertTrue("UTF-8 must be encoded exactly once", signed.octets().size > String(signed.octets(), Charsets.UTF_8).length)
+        val text = String(signed.octets(), Charsets.UTF_8)
+        assertTrue("the fixture must contain non-ASCII text", text.contains("Ñandú Ávila Güéllar Ürsula Œuvre Ação"))
+        assertTrue("UTF-8 must be encoded exactly once", signed.octets().size > text.length)
         assertArrayEquals(signed.octets(), transport.encodedOctets)
         assertArrayEquals(signed.octets(), decoded)
     }
@@ -145,7 +150,7 @@ class ByteIdentityTest {
     }
 
     @Test
-    fun aTransportThatReSerializesDoesNotTransmitTheSignedOctets() {
+    fun aConservativeReSerializationAlreadyChangesTheTransmittedBytes() {
         val signed = sign(SampleFactura.factura())
         val transport = ReserializingTransport()
 
@@ -153,29 +158,53 @@ class ByteIdentityTest {
 
         assertArrayEquals("the fixture must encode what it re-serialized", transport.encodedOctets, decoded)
         assertFalse(
-            "parsing and re-serializing must change the transmitted bytes, or this test proves nothing",
+            "parsing and re-serializing must change the transmitted bytes, or this fixture proves nothing",
             decoded.contentEquals(signed.octets()),
         )
         assertFalse(signed.contentEquals(decoded))
+
+        // Named concretely, so a future JDK whose serializer behaves differently fails here
+        // rather than silently weakening the fixture.
+        val original = String(signed.octets(), Charsets.UTF_8)
+        val sent = String(decoded, Charsets.UTF_8)
+        assertFalse("the canonical writer never emits a self-closing tag", original.contains(EMPTY_ELEMENT_COLLAPSED))
+        assertTrue("the re-serializer collapses empty elements", sent.contains(EMPTY_ELEMENT_COLLAPSED))
+        assertTrue("and rewrites the declaration", sent.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>"))
     }
 
     @Test
-    fun theReSerializedPayloadNoLongerValidatesInTheJsr105Oracle() {
+    fun aConservativeReSerializationIsStillAcceptedByBothVerifiers() {
         val signed = sign(SampleFactura.factura())
 
         val decoded = payloadOf(ReserializingTransport().submit(signed))
 
+        // This is the finding that justifies asserting SRI-05 on octets. Inclusive C14N puts the
+        // self-closing tags and the rewritten declaration back before the digest is taken, so
+        // both independent verifiers accept bytes that are NOT the bytes the signer returned.
+        // A green verifier therefore cannot stand in for byte identity.
+        assertFalse(decoded.contentEquals(signed.octets()))
+        assertEquals(Jsr105Verifier.Verdict.VALID, Jsr105Verifier.verdict(decoded))
+        assertEquals(Xades4jVerifier.Verdict.VALID, Xades4jVerifier.verify(decoded, anchor).verdict)
+    }
+
+    @Test
+    fun aReformattingReSerializationIsRejectedByTheJsr105Oracle() {
+        val signed = sign(SampleFactura.factura())
+
+        val decoded = payloadOf(ReserializingTransport(reformat = true).submit(signed))
+
+        assertFalse(decoded.contentEquals(signed.octets()))
         assertEquals(Jsr105Verifier.Verdict.VALID, Jsr105Verifier.verdict(signed.octets()))
-        // CORE_INVALID, not MALFORMED: the re-serialized document still parses, so the rejection
+        // CORE_INVALID, not MALFORMED: the reformatted document still parses, so the rejection
         // is a broken digest and not an accident of the fixture producing unreadable bytes.
         assertEquals(Jsr105Verifier.Verdict.CORE_INVALID, Jsr105Verifier.verdict(decoded))
     }
 
     @Test
-    fun theReSerializedPayloadNoLongerVerifiesAsXadesBes() {
+    fun aReformattingReSerializationIsRejectedByTheXadesBesVerifier() {
         val signed = sign(SampleFactura.factura())
 
-        val decoded = payloadOf(ReserializingTransport().submit(signed))
+        val decoded = payloadOf(ReserializingTransport(reformat = true).submit(signed))
 
         assertEquals(Xades4jVerifier.Verdict.VALID, Xades4jVerifier.verify(signed.octets(), anchor).verdict)
         // INVALID, not ERROR: xades4j rejected the signature rather than failing for some
@@ -210,5 +239,9 @@ class ByteIdentityTest {
     private companion object {
         const val PAYLOAD_OPEN = "<xml>"
         const val PAYLOAD_CLOSE = "</xml>"
+
+        /** One empty element of the signature, in the self-closing form the writer never emits. */
+        const val EMPTY_ELEMENT_COLLAPSED =
+            "<ds:CanonicalizationMethod Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\"/>"
     }
 }
