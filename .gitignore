@@ -51,3 +51,6 @@ secrets.properties
 # Local tooling: Python virtualenv and graphify knowledge-graph output
 /.venv/
 /graphify-out/
+
+# Locally downloaded SRI specification files; redistribution licence is unresolved
+docs/sri/
