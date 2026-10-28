@@ -128,10 +128,39 @@ object FacturaWriter {
     private fun guarded(path: String, guardLength: Int): Facet =
         register(Facet(path, Kind.TEXT, guardLength = guardLength))
 
-    private fun decimal(path: String): Facet =
-        register(Facet(path, Kind.DECIMAL, guardLength = AMOUNT_MAX))
+    /** The decimal facets of one named schema type, copied by hand and compared by a test. */
+    private class DecimalShape(
+        val totalDigits: Int,
+        val fractionDigits: Int,
+        val minInclusive: BigDecimal? = null,
+    )
 
-    private const val AMOUNT_MAX = 32
+    /** `totalSinImpuestos`, `valor`, `importeTotal` and most other amounts. */
+    private val AMOUNT = DecimalShape(totalDigits = 14, fractionDigits = 2, minInclusive = BigDecimal("0"))
+
+    /** `totalDescuentos` and `descuentoAdicional`: the schema states no lower bound. */
+    private val SIGNED_AMOUNT = DecimalShape(totalDigits = 14, fractionDigits = 2)
+
+    /** `tarifa`. */
+    private val RATE = DecimalShape(totalDigits = 4, fractionDigits = 2, minInclusive = BigDecimal("0"))
+
+    /** `tarifaRetencion`. */
+    private val WITHHOLDING_RATE = DecimalShape(totalDigits = 5, fractionDigits = 2, minInclusive = BigDecimal("0"))
+
+    /** `cantidad`, `precioUnitario` and `precioSinSubsidio`. */
+    private val QUANTITY = DecimalShape(totalDigits = 18, fractionDigits = 6, minInclusive = BigDecimal("0"))
+
+    private fun decimal(path: String, shape: DecimalShape = AMOUNT): Facet =
+        register(
+            Facet(
+                path,
+                Kind.DECIMAL,
+                totalDigits = shape.totalDigits,
+                fractionDigits = shape.fractionDigits,
+                minInclusive = shape.minInclusive,
+            ),
+        )
+
     private const val TEXT_MAX = 300
 
     private const val ROOT_ID = "comprobante"
@@ -201,7 +230,7 @@ object FacturaWriter {
     private val TOTAL_SIN_IMPUESTOS = decimal("$INVOICE_INFO/totalSinImpuestos")
     private val TOTAL_SUBSIDIO = decimal("$INVOICE_INFO/totalSubsidio")
     private val INCO_TERM_TOTAL_SIN_IMPUESTOS = bounded("$INVOICE_INFO/incoTermTotalSinImpuestos", 10)
-    private val TOTAL_DESCUENTO = decimal("$INVOICE_INFO/totalDescuento")
+    private val TOTAL_DESCUENTO = decimal("$INVOICE_INFO/totalDescuento", SIGNED_AMOUNT)
     private val COD_DOC_REEMBOLSO = guarded("$INVOICE_INFO/codDocReembolso", 3)
     private val TOTAL_COMPROBANTES_REEMBOLSO = decimal("$INVOICE_INFO/totalComprobantesReembolso")
     private val TOTAL_BASE_IMPONIBLE_REEMBOLSO = decimal("$INVOICE_INFO/totalBaseImponibleReembolso")
@@ -223,10 +252,10 @@ object FacturaWriter {
     private val TOTAL_IMPUESTO = container(TAX_TOTAL)
     private val TOTAL_IMPUESTO_CODIGO = bounded("$TAX_TOTAL/codigo", 1)
     private val TOTAL_IMPUESTO_CODIGO_PORCENTAJE = bounded("$TAX_TOTAL/codigoPorcentaje", 4)
-    private val DESCUENTO_ADICIONAL = decimal("$TAX_TOTAL/descuentoAdicional")
+    private val DESCUENTO_ADICIONAL = decimal("$TAX_TOTAL/descuentoAdicional", SIGNED_AMOUNT)
     private val TOTAL_IMPUESTO_BASE_IMPONIBLE = decimal("$TAX_TOTAL/baseImponible")
     // Spelt out in full: an optional element that used to be left out of the document.
-    private val TOTAL_IMPUESTO_TARIFA = decimal("factura/infoFactura/totalConImpuestos/totalImpuesto/tarifa")
+    private val TOTAL_IMPUESTO_TARIFA = decimal("factura/infoFactura/totalConImpuestos/totalImpuesto/tarifa", RATE)
     private val TOTAL_IMPUESTO_VALOR = decimal("$TAX_TOTAL/valor")
     private val VALOR_DEVOLUCION_IVA = decimal("$TAX_TOTAL/valorDevolucionIva")
 
@@ -235,13 +264,13 @@ object FacturaWriter {
     private val COMPENSACIONES = container("$INVOICE_INFO/compensaciones")
     private val COMPENSACION = container(COMPENSATION)
     private val COMPENSACION_CODIGO = guarded("$COMPENSATION/codigo", 4)
-    private val COMPENSACION_TARIFA = decimal("$COMPENSATION/tarifa")
+    private val COMPENSACION_TARIFA = decimal("$COMPENSATION/tarifa", RATE)
     private val COMPENSACION_VALOR = decimal("$COMPENSATION/valor")
 
     private val COMPENSACIONES_REEMBOLSO = container("$REFUND/compensacionesReembolso")
     private val COMPENSACION_REEMBOLSO = container(REFUND_COMPENSATION)
     private val COMPENSACION_REEMBOLSO_CODIGO = guarded("$REFUND_COMPENSATION/codigo", 4)
-    private val COMPENSACION_REEMBOLSO_TARIFA = decimal("$REFUND_COMPENSATION/tarifa")
+    private val COMPENSACION_REEMBOLSO_TARIFA = decimal("$REFUND_COMPENSATION/tarifa", RATE)
     private val COMPENSACION_REEMBOLSO_VALOR = decimal("$REFUND_COMPENSATION/valor")
 
     /** The facets one compensation block is written with, so one writer serves both blocks. */
@@ -281,9 +310,9 @@ object FacturaWriter {
     private val CODIGO_AUXILIAR = bounded("$LINE/codigoAuxiliar", 25)
     private val DESCRIPCION = bounded("$LINE/descripcion", 300)
     private val UNIDAD_MEDIDA = bounded("$LINE/unidadMedida", 50)
-    private val CANTIDAD = decimal("$LINE/cantidad")
-    private val PRECIO_UNITARIO = decimal("$LINE/precioUnitario")
-    private val PRECIO_SIN_SUBSIDIO = decimal("$LINE/precioSinSubsidio")
+    private val CANTIDAD = decimal("$LINE/cantidad", QUANTITY)
+    private val PRECIO_UNITARIO = decimal("$LINE/precioUnitario", QUANTITY)
+    private val PRECIO_SIN_SUBSIDIO = decimal("$LINE/precioSinSubsidio", QUANTITY)
     private val DESCUENTO = decimal("$LINE/descuento")
     private val PRECIO_TOTAL_SIN_IMPUESTO = decimal("$LINE/precioTotalSinImpuesto")
     private val DETALLES_ADICIONALES = container("$LINE/detallesAdicionales")
@@ -294,7 +323,7 @@ object FacturaWriter {
     private val IMPUESTO = container(LINE_TAX)
     private val IMPUESTO_CODIGO = bounded("$LINE_TAX/codigo", 1)
     private val IMPUESTO_CODIGO_PORCENTAJE = bounded("$LINE_TAX/codigoPorcentaje", 4)
-    private val IMPUESTO_TARIFA = decimal("$LINE_TAX/tarifa")
+    private val IMPUESTO_TARIFA = decimal("$LINE_TAX/tarifa", RATE)
     private val IMPUESTO_BASE_IMPONIBLE = decimal("$LINE_TAX/baseImponible")
     private val IMPUESTO_VALOR = decimal("$LINE_TAX/valor")
 
@@ -316,7 +345,7 @@ object FacturaWriter {
     private val DETALLE_IMPUESTO = container(REFUND_TAX)
     private val DETALLE_IMPUESTO_CODIGO = guarded("$REFUND_TAX/codigo", 4)
     private val DETALLE_IMPUESTO_CODIGO_PORCENTAJE = guarded("$REFUND_TAX/codigoPorcentaje", 4)
-    private val DETALLE_IMPUESTO_TARIFA = decimal("$REFUND_TAX/tarifa")
+    private val DETALLE_IMPUESTO_TARIFA = decimal("$REFUND_TAX/tarifa", RATE)
     private val BASE_IMPONIBLE_REEMBOLSO = decimal("$REFUND_TAX/baseImponibleReembolso")
     private val IMPUESTO_REEMBOLSO = decimal("$REFUND_TAX/impuestoReembolso")
 
@@ -326,7 +355,7 @@ object FacturaWriter {
     private val RETENCION = container(WITHHOLDING)
     private val RETENCION_CODIGO = guarded("$WITHHOLDING/codigo", 4)
     private val RETENCION_CODIGO_PORCENTAJE = guarded("$WITHHOLDING/codigoPorcentaje", 4)
-    private val RETENCION_TARIFA = decimal("$WITHHOLDING/tarifa")
+    private val RETENCION_TARIFA = decimal("$WITHHOLDING/tarifa", WITHHOLDING_RATE)
     private val RETENCION_VALOR = decimal("$WITHHOLDING/valor")
 
     // --- negotiable, fiscal machine and infoAdicional -----------------------------
@@ -644,6 +673,42 @@ object FacturaWriter {
     }
 
     /**
+     * The first decimal facet of [facet] that [value], as written, breaks; `null` when it breaks none.
+     * The order is `minInclusive`, `minExclusive`, `maxInclusive`, `maxExclusive`, `totalDigits`,
+     * `fractionDigits`.
+     *
+     * Digits are counted the way the schema counts them: integer digits without leading zeros plus
+     * fraction digits without trailing zeros, so `99999999999999.00` has fourteen. A facet the
+     * schema does not state is `null` and is not judged. The failure names the element, the facet
+     * and the schema's limit, never [value].
+     */
+    internal fun decimalViolation(facet: Facet, value: BigDecimal): FacturaError.DecimalOutOfRange? {
+        fun refuse(name: String, limit: String) = FacturaError.DecimalOutOfRange(facet.name, name, limit)
+        facet.minInclusive?.let { if (value < it) return refuse("minInclusive", it.toPlainString()) }
+        facet.minExclusive?.let { if (value <= it) return refuse("minExclusive", it.toPlainString()) }
+        facet.maxInclusive?.let { if (value > it) return refuse("maxInclusive", it.toPlainString()) }
+        facet.maxExclusive?.let { if (value >= it) return refuse("maxExclusive", it.toPlainString()) }
+        val digits = schemaDigits(value)
+        facet.totalDigits?.let { if (digits.integer + digits.fraction > it) return refuse("totalDigits", it.toString()) }
+        facet.fractionDigits?.let { if (digits.fraction > it) return refuse("fractionDigits", it.toString()) }
+        return null
+    }
+
+    private class Digits(val integer: Int, val fraction: Int)
+
+    /** The digit counts of [value] in the schema's value space, where trailing fraction zeros do not exist. */
+    private fun schemaDigits(value: BigDecimal): Digits {
+        if (value.signum() == 0) return Digits(integer = 1, fraction = 0)
+        val stripped = value.stripTrailingZeros()
+        val scale = stripped.scale()
+        return if (scale > 0) {
+            Digits(integer = maxOf(stripped.precision() - scale, 0), fraction = scale)
+        } else {
+            Digits(integer = stripped.precision() - scale, fraction = 0)
+        }
+    }
+
+    /**
      * One emission in progress: the emitter, and the first failure found.
      *
      * Once [error] is set nothing further is written, and [FacturaWriter.write] discards the
@@ -714,27 +779,41 @@ object FacturaWriter {
             xml.open(element.name).text(value).close()
         }
 
-        fun amount(element: Facet, value: BigDecimal) = text(element, Money.amount(value))
+        fun amount(element: Facet, value: BigDecimal) = decimal(element, Money.amount(value))
 
         fun optionalAmount(element: Facet, value: BigDecimal?) {
             if (value == null) return
             amount(element, value)
         }
 
-        fun rate(element: Facet, value: BigDecimal) = text(element, Money.rate(value))
+        fun rate(element: Facet, value: BigDecimal) = decimal(element, Money.rate(value))
 
         fun optionalRate(element: Facet, value: BigDecimal?) {
             if (value == null) return
             rate(element, value)
         }
 
-        fun quantity(element: Facet, value: BigDecimal) = text(element, Money.quantity(value))
+        fun quantity(element: Facet, value: BigDecimal) = decimal(element, Money.quantity(value))
 
-        fun unitPrice(element: Facet, value: BigDecimal) = text(element, Money.unitPrice(value))
+        fun unitPrice(element: Facet, value: BigDecimal) = decimal(element, Money.unitPrice(value))
 
         fun optionalUnitPrice(element: Facet, value: BigDecimal?) {
             if (value == null) return
             unitPrice(element, value)
+        }
+
+        /**
+         * A decimal element: [rendered] is [Money]'s plain text, which is judged against the schema's
+         * decimal facets exactly as it will be read, before anything is opened.
+         */
+        private fun decimal(element: Facet, rendered: String) {
+            if (error != null) return
+            val violation = decimalViolation(element, BigDecimal(rendered))
+            if (violation != null) {
+                fail(violation)
+                return
+            }
+            text(element, rendered)
         }
 
         /** Whether [value] may be written for [element]; records the first reason it may not. */
