@@ -49,17 +49,20 @@ but the workflow file itself is unexercised until its first push, and that first
 run is also the first measurement of the release-size tolerance on a machine other
 than the one that recorded the baseline (section 6).
 
-This page was last re-read, section by section, against `build-logic` at commit
-`418d4dd`. To check whether it is still current, run:
+This page was last re-read, section by section, against the `build-logic`
+sources whose content digest is `ea27286a2c5c`. To check whether it is still
+current, run:
 
 ```bash
-git log -1 --format=%h -- build-logic
+find build-logic/src build-logic/build.gradle.kts build-logic/settings.gradle.kts -type f \( -name '*.kt' -o -name '*.kts' \) -print | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -c1-12
 ```
 
-If that prints a different hash, a gate has changed since the page was read and
-the page has not been read against the current gates. The statements in section 5
-about what the keep-rule gate misses were measured at `93effbe`; the keep-rule gate's
-files are unchanged between that commit and `418d4dd`, so the measurements still
+If that prints a different value, a gate has changed since the page was read and
+the page has not been read against the current gates. The command reads the
+files in the working tree, so the answer does not depend on what has been
+committed. The statements in section 5 about what the keep-rule gate misses were
+measured at `93effbe`; the keep-rule gate's files are unchanged between that
+commit and the sources this page was re-read against, so the measurements still
 apply. They are measurements, not claims inherited from elsewhere.
 
 Every gate has the same shape, which is also the rule for adding one (see
@@ -426,18 +429,30 @@ ten-digit base has to be one repeated digit, and the gate refuses an allowlist
 entry that is not. A violation names the rule, the path and the line, never the
 matched text, because a build log is itself a publication channel.
 
+Independently of content, no git-tracked path may be a key-material file. A path
+is refused by path, whatever the file contains, when the extension of its last
+segment is one of `.p12`, `.pfx`, `.jks`, `.keystore`, `.pem` and `.key`, in any
+letter case. The match is on the whole extension, never a substring, so `Keystore.kt`, a
+`keystore/` directory, `p12-notes.md`, `layout.keyboard` and an extensionless
+`monkey` pass. The rule runs over every path `git ls-files` returns, before the
+binary skip and before the check that the file exists, so a tracked store that is
+absent from the working tree still fails. It reports a line of the form
+`PRIVACY keyMaterialFile <path>`. There is no allowlist: a violation is fixed by
+removing the file from git.
+
 **Command.** `./gradlew verifyPrivacyScan` (reached by `check`).
 
 **Where the logic lives.** `build-logic/src/main/kotlin/easyfact/PrivacyScan.kt`
 (rules, allowlist and the residual-gap statement), `VerifyPrivacyScanTask.kt`
 (reads the file list from `git ls-files -z`, never from a directory walk, and
 fails if that list is empty), `RepoGatesPlugin.kt`; failing fixtures in
-`PrivacyScanTest.kt`. Binary files are skipped by extension (`jar`, `webp`,
-`png`, `pdf`, `zip`, `keystore`) and every run prints how many it scanned and how
-many it skipped.
+`PrivacyScanTest.kt`. Key stores are refused by path before the binary skip is
+reached. Binary files are skipped by extension (`jar`, `webp`, `png`, `pdf`,
+`zip`, `keystore`) and every run prints how many it scanned, how many it skipped
+and how many tracked paths the key-material rule checked.
 
 **What it cannot see.** In the gate's own words, printed on every run:
-"RESIDUAL GAP: this scan matches the shape of an identifier in git-tracked text files, and nothing else. It cannot see a value split across lines or concatenated at runtime, an identifier encoded in base64 or held inside a binary file (binary files are skipped and counted), a real name or address (which have no shape), anything in an untracked file, or anything committed to git history before this gate existed. A green run is not proof that nothing private is published; review remains the control for what a shape cannot express."
+"RESIDUAL GAP: this scan matches the shape of an identifier in git-tracked text files, and nothing else. It cannot see a value split across lines or concatenated at runtime, an identifier encoded in base64 or held inside a binary file (binary files are skipped and counted), a real name or address (which have no shape), anything in an untracked file, or anything committed to git history before this gate existed. Files with the extensions p12, pfx, jks, keystore, pem and key are refused by path whatever their content, but a key store or key renamed to any other extension is not seen by that rule. A green run is not proof that nothing private is published; review remains the control for what a shape cannot express."
 A new file is not scanned until it is staged, because an untracked file is not in
 `git ls-files`.
 
