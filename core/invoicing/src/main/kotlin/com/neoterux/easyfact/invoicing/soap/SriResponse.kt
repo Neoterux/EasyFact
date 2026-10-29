@@ -47,12 +47,44 @@ class RawResponse private constructor(private val bytes: ByteArray) {
     /** A copy of the bytes in [span], which must lie inside the response. */
     fun copyOf(span: ByteSpan): ByteArray = bytes.copyOfRange(span.start, span.endExclusive)
 
+    /**
+     * Whether [span], which must lie inside the response, holds anything but XML white space, once an
+     * enclosing CDATA section's delimiters are set aside. Reads the bytes in place, without a copy.
+     */
+    internal fun hasContent(span: ByteSpan): Boolean {
+        var start = span.start
+        var end = span.endExclusive
+        while (start < end && isXmlSpace(bytes[start])) start++
+        while (end > start && isXmlSpace(bytes[end - 1])) end--
+        if (end - start >= CDATA_OPEN.size + CDATA_CLOSE.size &&
+            matchesAt(start, CDATA_OPEN) && matchesAt(end - CDATA_CLOSE.size, CDATA_CLOSE)
+        ) {
+            start += CDATA_OPEN.size
+            end -= CDATA_CLOSE.size
+            while (start < end && isXmlSpace(bytes[start])) start++
+        }
+        return start < end
+    }
+
+    private fun matchesAt(offset: Int, pattern: ByteArray): Boolean =
+        pattern.indices.all { bytes[offset + it] == pattern[it] }
+
+    private fun isXmlSpace(b: Byte): Boolean =
+        b == SPACE || b == TAB || b == CARRIAGE_RETURN || b == LINE_FEED
+
     /** Never renders the content. */
     override fun toString(): String = "RawResponse($size bytes)"
 
     companion object {
         /** Wraps a copy of [bytes]. */
         internal fun of(bytes: ByteArray): RawResponse = RawResponse(bytes.copyOf())
+
+        private const val SPACE: Byte = 0x20
+        private const val TAB: Byte = 0x09
+        private const val CARRIAGE_RETURN: Byte = 0x0D
+        private const val LINE_FEED: Byte = 0x0A
+        private val CDATA_OPEN = "<![CDATA[".toByteArray(Charsets.US_ASCII)
+        private val CDATA_CLOSE = "]]>".toByteArray(Charsets.US_ASCII)
     }
 }
 
@@ -172,9 +204,11 @@ class Authorization internal constructor(
 
     /**
      * Whether the entry carries both what the deliverable `<autorizacion>` envelope needs: the authorization
-     * number and the signed comprobante.
+     * number and a signed comprobante with content. A `comprobante` element that is self-closing, empty or
+     * holds only white space (or an empty CDATA section) is a truncated answer, not a document.
      */
-    internal val isComplete: Boolean get() = number != null && comprobanteSpan != null
+    internal val isComplete: Boolean
+        get() = number != null && comprobanteSpan != null && response.hasContent(comprobanteSpan)
 
     /** Never renders the number, the date, the messages or the document. */
     override fun toString(): String = "Authorization(state=$state, messages=${messages.size})"
@@ -186,13 +220,13 @@ class Authorization internal constructor(
  */
 sealed interface AuthorizationSummary {
     /**
-     * The entry at [index] is `AUTORIZADO` and carries a number and a comprobante; the first such entry.
+     * The entry at [index] is `AUTORIZADO` and carries a number and a comprobante with content; the first such entry.
      * An `AUTORIZADO` entry that lacks either is never reported here, see [AuthorizedIncomplete].
      */
     data class Authorized(val index: Int) : AuthorizationSummary
 
     /**
-     * The first `AUTORIZADO` entry, at [index], lacks the authorization number or the comprobante, and no
+     * The first `AUTORIZADO` entry, at [index], lacks the authorization number or a non-empty comprobante, and no
      * complete authorized entry exists. A truncated or malformed answer looks like this. The deliverable
      * envelope cannot be built from it, and the document must not be treated as authorized yet: Phase 6
      * reconciles by asking again, as for [Undetermined]. It is not a rejection.

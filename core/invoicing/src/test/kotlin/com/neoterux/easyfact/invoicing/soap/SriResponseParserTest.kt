@@ -250,6 +250,40 @@ class SriResponseParserTest {
     }
 
     @Test
+    fun aSelfClosingComprobanteIsAuthorizedIncompleteNeverAuthorized() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithSelfClosingComprobante())
+        assertEquals(AuthorizationState.Authorized, response.authorizations.single().state)
+        assertEquals(AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+    }
+
+    @Test
+    fun anEmptyComprobanteIsAuthorizedIncompleteNeverAuthorized() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithComprobanteContent(""))
+        assertEquals(AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+    }
+
+    @Test
+    fun aWhitespaceOnlyComprobanteIsAuthorizedIncompleteNeverAuthorized() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithComprobanteContent(" \r\n\t  \n"))
+        assertEquals(AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+    }
+
+    @Test
+    fun anEmptyOrBlankCdataComprobanteIsAuthorizedIncompleteNeverAuthorized() {
+        for (content in listOf("<![CDATA[]]>", "\n<![CDATA[ \r\n ]]>\n")) {
+            val response = authorization(SriResponseFixtures.authorizationAuthorizedWithComprobanteContent(content))
+            assertEquals(content, AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+        }
+    }
+
+    @Test
+    fun aComprobanteWithContentStaysAuthorizedAndItsBytesAreUntouched() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithComprobanteContent("<![CDATA[x]]>"))
+        assertEquals(AuthorizationSummary.Authorized(0), response.summary)
+        assertTrue("<![CDATA[x]]>".toByteArray().contentEquals(response.authorizations.single().comprobanteOctets()))
+    }
+
+    @Test
     fun aCompleteAuthorizedEntryWinsOverAnEarlierIncompleteOne() {
         val response = authorization(SriResponseFixtures.authorizationIncompleteThenComplete())
         assertEquals(AuthorizationSummary.Authorized(1), response.summary)

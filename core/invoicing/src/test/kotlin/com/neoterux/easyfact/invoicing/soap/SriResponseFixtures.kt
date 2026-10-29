@@ -255,6 +255,15 @@ object SriResponseFixtures {
     fun authorizationAuthorizedWithoutComprobante(): ByteArray =
         authorizationBody(entries = entry("AUTORIZADO", comprobante = null))
 
+    /** An `AUTORIZADO` entry whose `comprobante` element is the self-closing `<comprobante/>`. */
+    fun authorizationAuthorizedWithSelfClosingComprobante(): ByteArray = authorizationBody(
+        entries = entry("AUTORIZADO", comprobante = "").replace("<comprobante></comprobante>", "<comprobante/>"),
+    )
+
+    /** An `AUTORIZADO` entry whose `comprobante` element holds exactly [content], which may be empty. */
+    fun authorizationAuthorizedWithComprobanteContent(content: String): ByteArray =
+        authorizationBody(entries = entry("AUTORIZADO", comprobante = content))
+
     /** An incomplete `AUTORIZADO` entry followed by a complete one. */
     fun authorizationIncompleteThenComplete(): ByteArray = authorizationBody(
         count = "2",
