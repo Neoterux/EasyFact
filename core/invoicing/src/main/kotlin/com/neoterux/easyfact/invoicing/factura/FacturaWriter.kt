@@ -963,7 +963,7 @@ object FacturaWriter {
             // and a malformed one is only ever reported as malformed.
             val catalogue = element.catalogue
             if (catalogue != null && value !in catalogue) {
-                fail(FacturaError.CodeOutsideCatalogue(element.name, value, catalogue))
+                fail(FacturaError.CodeOutsideCatalogue(element.name, catalogue))
                 return false
             }
             if (!element.acceptsFormat(value)) {

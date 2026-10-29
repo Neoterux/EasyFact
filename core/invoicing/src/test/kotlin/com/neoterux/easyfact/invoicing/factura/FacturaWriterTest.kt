@@ -815,7 +815,7 @@ class FacturaWriterTest {
         val base = SampleFactura.factura()
         val outcome = error(base.copy(invoiceInfo = base.invoiceInfo.copy(buyerIdentificationTypeCode = "09")))
         assertEquals(
-            FacturaError.CodeOutsideCatalogue("tipoIdentificacionComprador", "09", setOf("04", "05", "06", "07", "08")),
+            FacturaError.CodeOutsideCatalogue("tipoIdentificacionComprador", setOf("04", "05", "06", "07", "08")),
             outcome,
         )
     }
@@ -834,6 +834,11 @@ class FacturaWriterTest {
         assertTrue(amount, amount.startsWith("DecimalOutOfRange("))
         assertTrue(amount, amount.contains("importeTotal") && amount.contains("minInclusive") && amount.contains("limit=0"))
         assertFalse(amount, amount.contains("424242"))
+        val outsideCatalogue = error(
+            base.copy(invoiceInfo = base.invoiceInfo.copy(buyerIdentificationTypeCode = "09")),
+        ).toString()
+        assertTrue(outsideCatalogue, outsideCatalogue.startsWith("CodeOutsideCatalogue("))
+        assertFalse(outsideCatalogue, outsideCatalogue.contains("09"))
     }
 
     // ---- the full document still signs and verifies -------------------------------------------

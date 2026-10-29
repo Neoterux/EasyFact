@@ -26,10 +26,11 @@ package com.neoterux.easyfact.invoicing.factura
  * screen.
  *
  * **No variant carries a value.** Each one names the element that was wrong and, where it helps,
- * a length or a catalogue code — never the customer's name, their identification number, their
- * address or any other free text. An error is rendered into diagnostics and into a log, and both
- * are publication channels (AGENTS.md section 7). A length is not the value; a catalogue code is
- * a protocol constant and identifies nobody.
+ * a length, a count or the set of codes the schema allows — never the value that was refused, so
+ * never the customer's name, their identification number, their address or any other free text.
+ * An error is rendered into diagnostics and into a log, and both are publication channels
+ * (AGENTS.md section 7). A length is not the value, and the allowed set is a protocol constant
+ * that identifies nobody.
  */
 sealed interface FacturaError {
 
@@ -92,10 +93,12 @@ sealed interface FacturaError {
      */
     data class InvalidFormat(override val element: String) : FacturaError
 
-    /** [code] is not in the catalogue the SRI publishes for [element]. */
+    /**
+     * The code written for [element] is not in the catalogue the SRI publishes for it. Names the element
+     * and the [allowed] set only, like every other variant, and never the code that was refused.
+     */
     data class CodeOutsideCatalogue(
         override val element: String,
-        val code: String,
         val allowed: Set<String>,
     ) : FacturaError
 

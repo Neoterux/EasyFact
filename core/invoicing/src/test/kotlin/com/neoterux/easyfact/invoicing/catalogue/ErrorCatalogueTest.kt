@@ -61,7 +61,7 @@ class ErrorCatalogueTest {
         FacturaError.DecimalOutOfRange("e", "maxInclusive", "1") to CatalogueEntry.AMOUNT_OUT_OF_RANGE,
         FacturaError.InvalidFormat("e") to CatalogueEntry.FIELD_INVALID_FORMAT,
         FacturaError.TooManyEntries("e", 15, 16) to CatalogueEntry.TOO_MANY_ADDITIONAL_FIELDS,
-        FacturaError.CodeOutsideCatalogue("e", "9", setOf("1")) to CatalogueEntry.ENGINE_BUG,
+        FacturaError.CodeOutsideCatalogue("e", setOf("1")) to CatalogueEntry.ENGINE_BUG,
         FacturaError.EmptyCollection("e") to CatalogueEntry.ENGINE_BUG,
         FacturaError.AccessKeyMismatch("claveAcceso", "ruc") to CatalogueEntry.ENGINE_BUG,
     )
