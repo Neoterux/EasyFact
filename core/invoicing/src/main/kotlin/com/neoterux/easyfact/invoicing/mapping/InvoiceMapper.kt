@@ -104,8 +104,9 @@ sealed interface MappingError {
  *
  * **Order of the refusals; the first failure wins.** Every document text is sanitised, with the limit read
  * from the writer's facet table, and refused if resolved pattern output holds the preview marker; then the
- * provider RUC is checked; then the arithmetic runs; then, for a consumidor-final buyer, the identification and the cap;
- * then `infoAdicional` is assembled and counted. All of that runs before [FacturaWriter], so the user sees a
+ * provider RUC is checked; then the arithmetic runs; then the buyer type and identification are checked
+ * against each other (for every buyer) and, for a consumidor-final buyer, the cap; then `infoAdicional` is
+ * assembled and counted. All of that runs before [FacturaWriter], so the user sees a
  * specific engine refusal, and the writer's own facets remain the backstop behind it.
  *
  * **The access key is an input.** [InvoiceRequest.accessKey] was derived once at allocation and

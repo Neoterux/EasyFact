@@ -49,8 +49,10 @@ data class CommittedSequence(val establishment: String, val emissionPoint: Strin
 
 /**
  * Text resolved for display only (D-37). A preview is a distinct type, so the commit path, which takes
- * a `String`, cannot be handed preview text by accident; the sanitiser and the mapper additionally
- * refuse the marker character (plan 03-08).
+ * a `String`, cannot be handed preview text by accident; the mapper additionally refuses the marker in
+ * the fields that hold resolved pattern output (a line's code and description, a template field's name
+ * and value), and the sanitiser refuses it everywhere else as an unsupported private-use character
+ * (plan 03-08).
  *
  * `toString()` renders nothing, because the text can hold the customer's name.
  */
@@ -95,8 +97,9 @@ object PlaceholderResolver {
      * person can type or paste in ordinary text (the horizontal ellipsis that phone keyboards substitute for
      * "..." collided with it), and [com.neoterux.easyfact.invoicing.text.TextSanitizer] refuses every
      * private-use character, so user data can never carry it. A screen that shows a preview replaces the marker
-     * with its own visible placeholder. The mapper looks for the marker before the sanitiser judges a text, so a
-     * preview that leaks into a document is reported as that fault and not as an unsupported character.
+     * with its own visible placeholder. In the four fields that hold resolved pattern output the mapper looks
+     * for the marker before the sanitiser judges the text, so a preview that leaks into a document is reported
+     * as that fault; in every other field the sanitiser reports it as an unsupported character.
      */
     const val PENDING_SEQUENCE_MARKER = "\uE000"
 

@@ -271,13 +271,13 @@ enum class CatalogueEntry(
     ENGINE_BUG(Source.ENGINE, null, Category.ENGINE_BUG, setOf(Stage.WRITING, Stage.KEY, Stage.SIGNING, Stage.STORAGE), NextAction.EXPORT_DIAGNOSTICS, null),
     /** A text holds a control character that cannot be written to the document. */
     TEXT_CONTROL_CHARACTER(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.TEXT, Stage.WRITING), NextAction.FIX_INPUT, null),
-    /** A text holds a character outside the Basic Multilingual Plane, such as an emoji (D-34). */
+    /** A text holds a character the document cannot carry: one outside the Basic Multilingual Plane, such as an emoji (D-34), or a private-use code point. */
     TEXT_UNSUPPORTED_CHARACTER(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.TEXT), NextAction.FIX_INPUT, null),
     /** A mandatory text is empty or blank. */
     TEXT_EMPTY(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.TEXT, Stage.WRITING), NextAction.FIX_INPUT, null),
     /** A text is longer than the schema allows for its element. */
     TEXT_TOO_LONG(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.TEXT, Stage.WRITING), NextAction.FIX_INPUT, null),
-    /** A value does not match the schema pattern or enumeration of its element. */
+    /** A value does not match the schema pattern or enumeration of its element, or is shorter than the schema's minimum length. */
     FIELD_INVALID_FORMAT(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.WRITING), NextAction.FIX_INPUT, null),
     /** An amount breaks a decimal facet of the schema. */
     AMOUNT_OUT_OF_RANGE(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.WRITING), NextAction.FIX_INPUT, null),
@@ -293,7 +293,7 @@ enum class CatalogueEntry(
     IVA_CODE_NOT_COMPUTABLE(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.TOTALS), NextAction.FIX_INPUT, null),
     /** A consumidor-final invoice exceeds the maximum total (D-31). */
     CONSUMIDOR_FINAL_CAP_EXCEEDED(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.MAPPING), NextAction.FIX_INPUT, null),
-    /** The buyer type is consumidor final but the identification is not the fixed one (D-31). */
+    /** The buyer type and the identification disagree: consumidor final without the fixed identification, or the fixed identification under any other type (D-31). */
     CONSUMIDOR_FINAL_IDENTIFICATION_MISMATCH(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.MAPPING), NextAction.FIX_INPUT, null),
     /** The additional-information container would hold more entries than the schema allows. */
     TOO_MANY_ADDITIONAL_FIELDS(Source.ENGINE, null, Category.CORRECTABLE, setOf(Stage.MAPPING, Stage.WRITING), NextAction.FIX_INPUT, null),
