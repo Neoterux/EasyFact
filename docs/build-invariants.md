@@ -16,7 +16,7 @@ as much a part of the gate as its failure message.
 | --- | --- | --- |
 | `./gradlew check` | the per-commit gates (everything except the release-artifact gates) | every push and pull request, and locally before you commit |
 | `./gradlew verifyRelease` | the release-artifact gates: `checkReleaseSize`, `verifyKeepRules`, `verifyReleaseUrlHosts` | every push and pull request, and locally before a release |
-| `./gradlew :app:verifyDeviceMatrix` | the device matrix: the golden-byte signing test on API 31, 34 and 37 emulators, and the check that every device really ran | locally, when signing, certificate loading or the signer's inputs change; not in CI yet |
+| `./gradlew :app:verifyDeviceMatrix` | the device matrix: the golden-byte signing test and the parser-hardening test on API 31, 34 and 37 emulators, and the check that every device really ran | locally, when signing, certificate loading or the signer's inputs change; not in CI yet |
 
 The first two are run by `.github/workflows/check.yml`. The release gates are off
 `check` on purpose: they force a full release build and an App Bundle, which is
@@ -618,6 +618,30 @@ AES encoding, and an API 31 device cannot open it, whatever the password. Handli
 device cannot open (rejecting it with a plain-language message, or re-encoding it) belongs to the
 certificate import, not to this matrix, which only records and asserts the platform's behaviour.
 
+**Parser hardening since Phase 3: `ParserHardeningTest`.** The same matrix also runs
+`app/src/androidTest/.../ParserHardeningTest.kt`, which feeds the SRI response codec
+(`SriResponseParser.parseAuthorization`) four synthetic payloads built at run time: a benign
+authorization shaped like the technical sheet's sample (a CDATA comprobante and warning 60), which
+must parse to an authorized summary with the comprobante bytes equal to the CDATA section as
+received; a billion-laughs payload, refused as a document type declaration within ten seconds; a
+payload with an external entity pointing at an `example.com` address, refused the same way without
+the parser being reached; and a UTF-16 payload, refused as not UTF-8. Each case logs one line under
+the `ParserHardening` tag with the API level and the outcome name, never content.
+
+What it proves: the byte guard (`ResponseGuard`) and the JAXP SAX setup (the secure-processing
+feature in a guarded try, a refusing entity resolver) behave on API 31, 34 and 37 as they do on the
+JDK, and the SAX setup does not throw on ART for a legitimate answer. The byte guard is the actual
+XXE and entity-expansion control and depends on no parser feature, so this test is a portability
+proof for the defence in depth, not a correctness dependency: the codec's behaviour is covered by
+JVM tests in `:core:invoicing`, and a green `check` does not include this test (NFR-04).
+
+What it cannot see: parser behaviour on any image outside the matrix (a vendor build, API 32 or 33,
+a device with a replaced XML provider), and any JAXP feature the codec does not set, so it says
+nothing about a feature name some other platform accepts or rejects. The "no network fetch" claim is
+asserted through the refusal result, not through traffic observation. It is run when the codec's
+parser setup or the guard changes, with the rest of the matrix; the recorded result of a run belongs
+in the summary of the change that ran it, and a change that was never run on the matrix must say so.
+
 **What it cannot see.** It proves byte equality and password refusal for seven synthetic certificates (five signing cases and two rejection cases) on three emulators on an
 Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing
 about a real certificate authority's files, a hardware-backed key, a physical device's vendor
@@ -677,6 +701,39 @@ validates it with the schema gate.
 different published revision is invisible to it. The writer mirrors the schema, not
 business sense: a value the schema allows but the business would not (a negative
 total discount, whose schema type states no lower bound) is written.
+
+## 16. Catalogue strings completeness: `CatalogueStringsTest` in `:app:testDebugUnitTest`
+
+**What it enforces.** Every `CatalogueEntry` of `:core:invoicing` (every SRI code from the technical
+sheet, the two unknown-message entries and every engine refusal and warning) has a non-blank
+`<string>` in `app/src/main/res/values/strings.xml`, named by the entry's `resourceName`. The file
+must exist at the module-relative path, hold at least one string per entry plus `app_name`, keep
+`app_name` unchanged, and keep the two format-sensitive entries well-formed: the unrecognised-token
+warning carries its token as the single `%1$s` argument, and the sequence-assigned note is a
+statement with no format argument and no question. The three zero-value warnings must ask a question,
+since they ask the user to confirm.
+
+**Command.** `./gradlew :app:testDebugUnitTest --tests '*CatalogueStringsTest'`, reached by
+`./gradlew check`.
+
+**Where the logic lives.** `app/src/test/java/com/neoterux/easyfact/catalogue/CatalogueStringsTest.kt`.
+The checking is `missingOrBlank(required, stringsXml)`, a pure function over bytes that parses with
+the JDK's `DocumentBuilderFactory` (test scope only; nothing from it reaches the app). It is a plain
+JVM test on purpose: Robolectric would be a new dependency needing the owner's approval and would run
+the JDK parser anyway. The entry list is read from `CatalogueEntry.entries`, so a new entry fails the
+test until its string is added; completeness on the `:core:invoicing` side is a compile error, because
+the error-to-entry mappings are `when` expressions with no `else`.
+
+**Failing fixtures.** The same file carries synthetic documents the checker must reject: one with a
+missing key and a blank key (reported in input order), an empty element, and an empty `<resources/>`.
+The working directory is asserted too: a run that does not start in the `:app` module directory fails
+with the expected path instead of passing on an absent file.
+
+**What it cannot see.** Wording quality and the "usted" register: whether a sentence is plain, correct
+Spanish and consistent with the entry's next action is review-only. It cannot see strings for UI that
+is not in the catalogue yet, a string that exists but is never shown (an unreferenced string is only a
+lint warning), AAPT escaping mistakes (those fail `assembleDebug`, not this test), or a locale other
+than the default; the default locale is Spanish (Ecuador) and no other is provided.
 
 ## Device-to-device transfer is UNVERIFIED
 
