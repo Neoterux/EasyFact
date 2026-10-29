@@ -452,6 +452,25 @@ class InvoiceMapperTest {
     }
 
     @Test
+    fun theConsumidorFinalIdentificationUnderAnotherTypeIsRefusedWhateverTheTotal() {
+        val anonymous = SyntheticIdNumbers.consumidorFinal()
+        for (type in listOf(BuyerIdType.RUC, BuyerIdType.CEDULA, BuyerIdType.PASSPORT, BuyerIdType.FOREIGN)) {
+            for (amount in listOf("10.00", "500.00")) {
+                val request = MapperFixtures.request(
+                    buyer = MapperFixtures.buyer(idType = type, identification = anonymous),
+                    lines = listOf(ResolvedLine.lumpSum("LS-1", "Servicio de prueba", BigDecimal(amount), "0")),
+                )
+
+                assertEquals(
+                    "type ${type.code} with the anonymous identification at $amount",
+                    MappingError.ConsumidorFinalIdentificationMismatch,
+                    MapperFixtures.refusal("anonymous identification under ${type.code} at $amount", request),
+                )
+            }
+        }
+    }
+
+    @Test
     fun otherBuyerTypesAreNotCappedAtFifty() {
         val request = MapperFixtures.request(
             lines = listOf(ResolvedLine.lumpSum("LS-1", "Honorarios del mes", BigDecimal("500.00"), "0")),

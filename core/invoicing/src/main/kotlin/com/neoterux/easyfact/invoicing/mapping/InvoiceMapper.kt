@@ -84,7 +84,11 @@ sealed interface MappingError {
     /** The issuer's provider RUC is set but is not exactly thirteen ASCII digits (D-19). */
     data object ProviderRucMalformed : MappingError
 
-    /** The buyer type is consumidor final but the identification is not the consumidor-final one (D-31). */
+    /**
+     * The buyer type and the identification disagree about consumidor final (D-31): the type is consumidor
+     * final but the identification is not the consumidor-final one, or the identification is the
+     * consumidor-final one under another type.
+     */
     data object ConsumidorFinalIdentificationMismatch : MappingError
 }
 
@@ -186,11 +190,15 @@ object InvoiceMapper {
         }
         val totals = computed.value
 
-        if (request.buyer.idType == BuyerIdType.CONSUMIDOR_FINAL) {
-            // D-31: an anonymous buyer is only the consumidor-final identification, and only up to the cap.
-            if (!IdentificationValidator.isConsumidorFinal(text.buyerIdentification)) {
-                return Outcome.Err(MappingError.ConsumidorFinalIdentificationMismatch)
-            }
+        // D-31: an anonymous buyer is only the consumidor-final identification, and only up to the cap. The
+        // identification is the discriminator as much as the type: thirteen nines under any other type is
+        // the same anonymous buyer, so it is refused rather than allowed to bypass the cap.
+        val anonymousType = request.buyer.idType == BuyerIdType.CONSUMIDOR_FINAL
+        val anonymousIdentification = IdentificationValidator.isConsumidorFinal(text.buyerIdentification)
+        if (anonymousType != anonymousIdentification) {
+            return Outcome.Err(MappingError.ConsumidorFinalIdentificationMismatch)
+        }
+        if (anonymousType) {
             when (val guard = ConsumidorFinalGuard.check(totals.grandTotal)) {
                 is Outcome.Ok -> Unit
                 is Outcome.Err -> return Outcome.Err(MappingError.BuyerGuard(guard.error))
