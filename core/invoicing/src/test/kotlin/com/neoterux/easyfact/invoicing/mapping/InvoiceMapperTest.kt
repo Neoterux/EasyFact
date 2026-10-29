@@ -774,7 +774,7 @@ class InvoiceMapperTest {
         )
 
         assertEquals(
-            MappingError.Totals(TotalsError.UnknownIvaCode(0, "99")),
+            MappingError.Totals(TotalsError.UnknownIvaCode(0)),
             MapperFixtures.refusal("totals before consumidor final", request),
         )
     }

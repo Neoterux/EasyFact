@@ -120,17 +120,17 @@ class TracerEndToEndTest {
     }
 
     @Test
-    fun anUnknownIvaCodeIsRefusedWithItsLineIndexAndCode() {
+    fun anUnknownIvaCodeIsRefusedWithItsLineIndex() {
         val outcome = InvoiceMapper.map(request(ivaRateCode = "99"))
 
-        assertEquals(Outcome.Err(MappingError.Totals(TotalsError.UnknownIvaCode(0, "99"))), outcome)
+        assertEquals(Outcome.Err(MappingError.Totals(TotalsError.UnknownIvaCode(0))), outcome)
     }
 
     @Test
     fun anIvaCodeWithNoFixedRateIsRefusedAsNotComputable() {
         val outcome = InvoiceMapper.map(request(ivaRateCode = "8"))
 
-        assertEquals(Outcome.Err(MappingError.Totals(TotalsError.IvaCodeNotComputable(0, "8"))), outcome)
+        assertEquals(Outcome.Err(MappingError.Totals(TotalsError.IvaCodeNotComputable(0))), outcome)
     }
 
     @Test

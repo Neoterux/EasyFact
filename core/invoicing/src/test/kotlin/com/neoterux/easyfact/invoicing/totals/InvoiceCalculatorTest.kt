@@ -375,20 +375,20 @@ class InvoiceCalculatorTest {
         assertEquals(TotalsError.NegativeUnitPrice(0), error(listOf(line("1", "-1.00", "9"))))
         // An unknown code on an earlier line comes before a negative quantity on a later one.
         assertEquals(
-            TotalsError.UnknownIvaCode(0, "9"),
+            TotalsError.UnknownIvaCode(0),
             error(listOf(line("1", "1.00", "9"), line("-1", "1.00", "4"))),
         )
     }
 
     @Test
-    fun anUnknownCodeIsRefusedWithItsPositionAndCode() {
-        assertEquals(TotalsError.UnknownIvaCode(1, "9"), error(listOf(line("1", "1.00", "4"), line("1", "1.00", "9"))))
-        assertEquals(TotalsError.UnknownIvaCode(0, " 4"), error(listOf(line("1", "1.00", " 4"))))
+    fun anUnknownCodeIsRefusedWithItsPosition() {
+        assertEquals(TotalsError.UnknownIvaCode(1), error(listOf(line("1", "1.00", "4"), line("1", "1.00", "9"))))
+        assertEquals(TotalsError.UnknownIvaCode(0), error(listOf(line("1", "1.00", " 4"))))
     }
 
     @Test
     fun ivaDiferenciadoIsNotComputable() {
-        assertEquals(TotalsError.IvaCodeNotComputable(0, "8"), error(listOf(line("1", "1.00", "8"))))
+        assertEquals(TotalsError.IvaCodeNotComputable(0), error(listOf(line("1", "1.00", "8"))))
     }
 
     // --- warnings (D-27): the result is Ok and says what it noticed --------------------------------

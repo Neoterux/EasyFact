@@ -90,8 +90,8 @@ class ErrorCatalogueTest {
         TotalsError.NoLines to CatalogueEntry.NO_LINES,
         TotalsError.NegativeQuantity(0) to CatalogueEntry.NEGATIVE_QUANTITY,
         TotalsError.NegativeUnitPrice(0) to CatalogueEntry.NEGATIVE_UNIT_PRICE,
-        TotalsError.UnknownIvaCode(0, "x") to CatalogueEntry.UNKNOWN_IVA_CODE,
-        TotalsError.IvaCodeNotComputable(0, "8") to CatalogueEntry.IVA_CODE_NOT_COMPUTABLE,
+        TotalsError.UnknownIvaCode(0) to CatalogueEntry.UNKNOWN_IVA_CODE,
+        TotalsError.IvaCodeNotComputable(0) to CatalogueEntry.IVA_CODE_NOT_COMPUTABLE,
     )
 
     private val buyerGuard: List<Pair<BuyerGuardError, CatalogueEntry>> = listOf(

@@ -61,7 +61,7 @@ data class InvoiceTotals(
     val lineIvaSum: BigDecimal,
 )
 
-/** Why the arithmetic could not be done. No variant carries an amount, only a position or a protocol code. */
+/** Why the arithmetic could not be done. No variant carries an amount or any caller text, only a position. */
 sealed interface TotalsError {
 
     /** The invoice has no lines. */
@@ -73,11 +73,14 @@ sealed interface TotalsError {
     /** The line at [lineIndex] has a negative unit price. */
     data class NegativeUnitPrice(val lineIndex: Int) : TotalsError
 
-    /** The `codigoPorcentaje` [code] of the line at [lineIndex] is not in [IvaRateTable]. */
-    data class UnknownIvaCode(val lineIndex: Int, val code: String) : TotalsError
+    /**
+     * The `codigoPorcentaje` of the line at [lineIndex] is not in [IvaRateTable]. The refused string is
+     * deliberately not carried: it is free caller text, and this type is rendered into diagnostics.
+     */
+    data class UnknownIvaCode(val lineIndex: Int) : TotalsError
 
-    /** The [code] of the line at [lineIndex] is IVA diferenciado, which has no fixed rate to compute with. */
-    data class IvaCodeNotComputable(val lineIndex: Int, val code: String) : TotalsError
+    /** The line at [lineIndex] is IVA diferenciado, which has no fixed rate to compute with. */
+    data class IvaCodeNotComputable(val lineIndex: Int) : TotalsError
 }
 
 /**
@@ -125,8 +128,8 @@ object InvoiceCalculator {
             if (line.quantity.signum() < 0) return Outcome.Err(TotalsError.NegativeQuantity(index))
             if (line.unitPrice.signum() < 0) return Outcome.Err(TotalsError.NegativeUnitPrice(index))
             val rate = IvaRateTable.lookup(line.ivaRateCode)
-                ?: return Outcome.Err(TotalsError.UnknownIvaCode(index, line.ivaRateCode))
-            if (rate.kind == IvaRateKind.DIFFERENTIATED) return Outcome.Err(TotalsError.IvaCodeNotComputable(index, line.ivaRateCode))
+                ?: return Outcome.Err(TotalsError.UnknownIvaCode(index))
+            if (rate.kind == IvaRateKind.DIFFERENTIATED) return Outcome.Err(TotalsError.IvaCodeNotComputable(index))
             rates += rate
         }
 
