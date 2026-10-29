@@ -92,9 +92,9 @@ sealed interface TotalsError {
  * - `importeTotal` is the sum of the bases plus the sum of the group IVA plus the tip, which is always
  *   zero (D-22, D-25).
  *
- * All rounding is [RoundingMode.HALF_UP]. This object builds [TaxTotal] itself; it never calls
- * `TaxGrouping`, which sums per-line amounts, the opposite of D-21. Numbers become strings only in
- * `Money`, at emission.
+ * All rounding is [RoundingMode.HALF_UP]. This object builds [TaxTotal] itself; the retired Phase 2
+ * grouping helper, which summed per-line amounts (the opposite of D-21), no longer exists. Numbers
+ * become strings only in `Money`, at emission.
  */
 object InvoiceCalculator {
 

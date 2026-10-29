@@ -36,9 +36,11 @@ import java.math.BigDecimal
 /**
  * One `totalImpuesto` of `totalConImpuestos`.
  *
- * Both amounts are held at whatever precision the caller computed; scale is applied once, at
- * emission, by [Money]. See [TaxGrouping] for why that is what makes per-line and group-base
- * rounding agree.
+ * [taxableBase] and [amount] are computed by `com.neoterux.easyfact.invoicing.totals.InvoiceCalculator`
+ * under D-21: the group `valor` is round2 of the group base times the rate, computed independently of
+ * the per-line `valor`s, so the sum of the per-line values may differ from the group value by a cent,
+ * as in the SRI's own free invoicer. This type only carries what the calculator produced; [Money] still
+ * applies scale at emission.
  */
 data class TaxTotal(
     /** `codigo`: `2` is IVA. */
@@ -118,44 +120,3 @@ data class ExportInfo(
     /** `paisAdquisicion` */
     val countryOfAcquisition: String? = null,
 )
-
-/**
- * Collapses the per-line `impuestos` of a document into its `totalConImpuestos`.
- *
- * **Why this is arranged the way it is.** Research flagged an unanswered SRI question: whether
- * IVA is expected to be rounded per line and then summed, or computed once on the group base.
- * Picking one and being wrong is a rejection, and the specification does not say. So the two
- * forms are made *identical by construction* rather than chosen between: the line bases and the
- * line amounts are summed at full precision and scale is applied exactly once, at emission, by
- * [Money]. Multiplication distributes over addition exactly in [BigDecimal], so
- * `rate x sum(base)` and `sum(rate x base)` are the same number before any rounding happens, and
- * therefore render as the same string. The only way the two forms can disagree is if a value is
- * rounded per line *before* being summed, which is precisely what this never does.
- *
- * A builder where both readings agree cannot be wrong either way. Phase 6's probe will confirm
- * which form the SRI expects; nothing here has to change when it does.
- *
- * Group identity is the pair of tax code and percentage code, and group order is a sort on that
- * pair rather than encounter order, so two documents with the same content always produce the
- * same bytes — which matters, because the bytes are what gets signed.
- *
- * Totals *arithmetic* — deciding what a line's base and amount are — stays in Phase 3 (D-08).
- * This is grouping and rendering only: it sums what the caller computed.
- */
-object TaxGrouping {
-
-    /** The `totalConImpuestos` entries for [lines], one per distinct tax-code and rate-code pair. */
-    fun totals(lines: List<InvoiceLine>): List<TaxTotal> = lines
-        .flatMap { it.taxes }
-        .groupBy { it.taxCode to it.rateCode }
-        .map { (codes, taxes) ->
-            TaxTotal(
-                taxCode = codes.first,
-                rateCode = codes.second,
-                // Full precision all the way: Money applies the scale once, at emission.
-                taxableBase = taxes.fold(BigDecimal.ZERO) { sum, tax -> sum.add(tax.taxableBase) },
-                amount = taxes.fold(BigDecimal.ZERO) { sum, tax -> sum.add(tax.amount) },
-            )
-        }
-        .sortedWith(compareBy({ it.taxCode }, { it.rateCode }))
-}
