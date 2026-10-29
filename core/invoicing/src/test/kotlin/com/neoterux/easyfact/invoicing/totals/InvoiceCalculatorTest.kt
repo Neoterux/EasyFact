@@ -228,7 +228,7 @@ class InvoiceCalculatorTest {
     fun theBaseIsComputedFromTheRoundedQuantityAndPriceNotTheRawOnes() {
         // Quantity 0.9999995 rounds half up to 1.000000 and price 0.005 stays 0.005000, so the base is
         // 1.000000 x 0.005000 = 0.005 -> 0.01. Multiplying the raw values instead would give
-        // 0.9999995 x 0.005 = 0.0049999975 -> 0.00, which is what the SRI would not recompute.
+        // 0.9999995 x 0.005, a hair under half a cent, -> 0.00, which the SRI would not recompute.
         val line = computed(listOf(line("0.9999995", "0.005", "0"))).value.lines[0]
         assertEquals("1.000000", line.quantity.toPlainString())
         assertEquals("0.01", line.base.toPlainString())
