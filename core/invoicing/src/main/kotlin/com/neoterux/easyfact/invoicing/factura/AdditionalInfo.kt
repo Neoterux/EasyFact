@@ -32,13 +32,19 @@ package com.neoterux.easyfact.invoicing.factura
  * The Ficha caps `infoAdicional` at fifteen entries; the writer rejects a sixteenth with
  * [FacturaError.TooManyEntries] rather than emitting a document the SRI will return.
  */
-data class AdditionalField(val name: String, val value: String)
+data class AdditionalField(val name: String, val value: String) {
+    /** Renders no field: a name or value can hold the customer's name, address or mailbox (NFR-04). */
+    override fun toString(): String = "AdditionalField(redacted)"
+}
 
 /**
  * One `detAdicional` of a line's `detallesAdicionales`. Both parts are attributes, so the element
  * itself carries no text.
  */
-data class LineDetailField(val name: String, val value: String)
+data class LineDetailField(val name: String, val value: String) {
+    /** Renders no field: free text can hold customer data (NFR-04). */
+    override fun toString(): String = "LineDetailField(redacted)"
+}
 
 /**
  * The `maquinaFiscal` block: the fiscal machine the document was issued from. All three parts are

@@ -28,7 +28,13 @@ package com.neoterux.easyfact.invoicing.result
 data class Computed<out T>(
     val value: T,
     val warnings: List<EngineWarning> = emptyList(),
-)
+) {
+    /**
+     * Renders neither the value nor the warnings, only how many there are. The value can be resolved text
+     * that holds the customer's name or identification, and diagnostics must not carry it (NFR-04).
+     */
+    override fun toString(): String = "Computed(value=redacted, warnings=${warnings.size})"
+}
 
 /**
  * A condition the engine reports next to a successful result (D-27, D-37, D-38).

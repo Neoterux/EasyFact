@@ -73,7 +73,10 @@ data class Refund(
     val taxes: List<RefundTax>,
     /** `compensacionesReembolso`; the element is absent when this is empty. */
     val compensations: List<Compensation> = emptyList(),
-)
+) {
+    /** Renders no field: the provider's identification is third-party data (NFR-04). */
+    override fun toString(): String = "Refund(redacted)"
+}
 
 /** One `detalleImpuesto` of a [Refund]. */
 data class RefundTax(

@@ -57,7 +57,10 @@ data class Factura(
     val fiscalMachine: FiscalMachine? = null,
     /** `infoAdicional`; the element is absent when this is empty, and capped at fifteen entries. */
     val additionalFields: List<AdditionalField> = emptyList(),
-)
+) {
+    /** Renders no field: the document holds the issuer's RUC and names and the buyer's identification (NFR-04). */
+    override fun toString(): String = "Factura(redacted)"
+}
 
 /** `infoTributaria`: who issues the document and which document it is. */
 data class TaxInfo(
@@ -92,7 +95,10 @@ data class TaxInfo(
     val withholdingAgentResolution: String? = null,
     /** `contribuyenteRimpe`: the RIMPE regime legend of Annex 22; omitted when `null`. */
     val rimpeRegimeLegend: String? = null,
-)
+) {
+    /** Renders no field: the block holds the issuer's RUC, names and address (NFR-04). */
+    override fun toString(): String = "TaxInfo(redacted)"
+}
 
 /**
  * `infoFactura`: the buyer, the totals and the payments.
@@ -162,7 +168,10 @@ data class InvoiceInfo(
     val ivaWithheldValue: BigDecimal? = null,
     /** `valorRetRenta`; omitted when `null`. */
     val incomeTaxWithheldValue: BigDecimal? = null,
-)
+) {
+    /** Renders no field: the block holds the buyer's name and identification (NFR-04). */
+    override fun toString(): String = "InvoiceInfo(redacted)"
+}
 
 /** One `detalle`. */
 data class InvoiceLine(
@@ -188,4 +197,7 @@ data class InvoiceLine(
     val additionalDetails: List<LineDetailField> = emptyList(),
     /** `impuestos`; at least one `impuesto`. An empty list is refused with [FacturaError.EmptyCollection]. */
     val taxes: List<LineTax>,
-)
+) {
+    /** Renders no field: a code or description can hold the customer's name or identification (NFR-04). */
+    override fun toString(): String = "InvoiceLine(redacted)"
+}

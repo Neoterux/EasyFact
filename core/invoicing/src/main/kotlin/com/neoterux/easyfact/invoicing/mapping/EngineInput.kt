@@ -105,6 +105,9 @@ data class ResolvedLine(
     val unitPrice: BigDecimal,
     val ivaRateCode: String,
 ) {
+    /** Renders no field: a code or description can hold the customer's name or identification (NFR-04). */
+    override fun toString(): String = "ResolvedLine(redacted)"
+
     companion object {
 
         /**
@@ -122,7 +125,10 @@ data class ResolvedLine(
 }
 
 /** A template-defined extra `infoAdicional` entry: a name and the value resolved for this invoice. */
-data class TemplateField(val name: String, val value: String)
+data class TemplateField(val name: String, val value: String) {
+    /** Renders no field: a resolved value can hold the customer's name or identification (NFR-04). */
+    override fun toString(): String = "TemplateField(redacted)"
+}
 
 /**
  * `formaPago`, the payment method, with the eight codes of Ficha v2.34 Table 24 (p.79).

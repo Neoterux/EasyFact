@@ -44,8 +44,8 @@ import java.math.BigDecimal
  * What [InvoiceMapper.map] produces: the model, the canonical bytes written from it and the arithmetic behind both.
  *
  * `toString()` renders no field: the model holds the issuer's RUC, names and the buyer's identification, and a
- * mapped invoice reaches logs and crash reports through `Computed`. The nested [Factura] keeps its Phase 2
- * rendering, which this wrapper never calls.
+ * mapped invoice reaches logs and crash reports through `Computed`. The nested [Factura] and its blocks
+ * redact themselves too, so a caller that logs `factura` directly is covered as well.
  */
 data class MappedInvoice(
     val factura: Factura,
