@@ -36,7 +36,10 @@ sealed interface FacturaError {
     /** The SRI element name the failure is about, so the UI can point at one field. */
     val element: String
 
-    /** [element] is longer than the schema's `maxLength` facet allows, counted in Unicode code points. */
+    /**
+     * [element] is longer than the schema's `maxLength` facet allows, counted in UTF-16 code units,
+     * as the JDK schema validator counts them (D-13).
+     */
     data class FieldTooLong(
         override val element: String,
         val maxLength: Int,
@@ -44,8 +47,9 @@ sealed interface FacturaError {
     ) : FacturaError
 
     /**
-     * [element] is shorter than the schema's `minLength` facet allows. Like every variant it carries
-     * the element name and the two lengths, never the value that was too short.
+     * [element] is shorter than the schema's `minLength` facet allows, counted in UTF-16 code units
+     * like [FieldTooLong]. Like every variant it carries the element name and the two lengths, never
+     * the value that was too short.
      */
     data class FieldTooShort(
         override val element: String,

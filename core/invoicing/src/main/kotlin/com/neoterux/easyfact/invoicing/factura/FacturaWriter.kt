@@ -940,8 +940,11 @@ object FacturaWriter {
                 fail(FacturaError.BlankField(element.name))
                 return false
             }
-            // The schema counts characters, and a supplementary character is two UTF-16 units.
-            val length = value.codePointCount(0, value.length)
+            // Lengths are counted in UTF-16 code units, which is how the JDK schema validator measures
+            // a string facet; the owner settled this in Phase 3 (D-13). With the sanitiser refusing
+            // non-BMP characters (D-34) the unit and code-point counts no longer diverge for accepted
+            // text, but the rule is recorded anyway.
+            val length = value.length
             val maximum = element.maxLength
             if (maximum != null && length > maximum) {
                 fail(FacturaError.FieldTooLong(element.name, maximum, length))
