@@ -118,6 +118,16 @@ class TextSanitizerTest {
     }
 
     @Test
+    fun aPrivateUseCharacterIsAnUnsupportedCharacter() {
+        assertEquals(Outcome.Err(SanitizerError.UnsupportedCharacter(field)), required("a\uE000b"))
+    }
+
+    @Test
+    fun aHorizontalEllipsisPassesUnchanged() {
+        assertEquals(Outcome.Ok("Wait\u2026 what"), required("Wait\u2026 what"))
+    }
+
+    @Test
     fun whitespaceOnlyMandatoryTextIsEmpty() {
         assertEquals(Outcome.Err(SanitizerError.Empty(field)), required("   "))
     }

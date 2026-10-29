@@ -159,7 +159,7 @@ internal object MapperFixtures {
  */
 class InvoiceMapperTest {
 
-    private val marker = "…"
+    private val marker = "\uE000"
     private val addressName = "Dirección"
     private val phoneName = "Teléfono"
     private val emptyElement = Regex("<([A-Za-z]+)></\\1>")
@@ -463,10 +463,26 @@ class InvoiceMapperTest {
     // --- sanitiser, preview marker, optional text (D-34, D-37) ---------------------------------------------
 
     @Test
-    fun aDescriptionWithTheMarkerIsRefusedAsAPreviewMarker() {
+    fun aDescriptionWithTheMarkerIsRefusedAsAnUnsupportedCharacter() {
         val request = MapperFixtures.request(lines = listOf(MapperFixtures.line(description = "Servicio $marker de prueba")))
 
-        assertEquals(MappingError.PreviewMarkerInDocument("descripcion"), MapperFixtures.refusal("marker in description", request))
+        assertEquals(
+            MappingError.Text(SanitizerError.UnsupportedCharacter("descripcion")),
+            MapperFixtures.refusal("marker in description", request),
+        )
+    }
+
+    @Test
+    fun aTypedHorizontalEllipsisIsLegitimateTextAndIsWritten() {
+        // Phone keyboards replace "..." with U+2026; it must not be mistaken for the preview marker.
+        val request = MapperFixtures.request(
+            buyer = MapperFixtures.buyer(legalName = "Test Customer\u2026 S.A."),
+            lines = listOf(MapperFixtures.line(description = "Servicio\u2026 de prueba")),
+        )
+        val xml = String(MapperFixtures.mappedOk("typed ellipsis", request).value.document.octets(), Charsets.UTF_8)
+
+        assertTrue("ellipsis in description", xml.contains("<descripcion>Servicio\u2026 de prueba</descripcion>"))
+        assertTrue("ellipsis in buyer name", xml.contains("<razonSocialComprador>Test Customer\u2026 S.A.</razonSocialComprador>"))
     }
 
     @Test
@@ -484,12 +500,16 @@ class InvoiceMapperTest {
             "template field value" to ("campoAdicional" to MapperFixtures.request(templateFields = listOf(TemplateField("Campo", withMarker)))),
         )
         for ((variant, expected) in variants) {
-            assertEquals(variant, MappingError.PreviewMarkerInDocument(expected.first), MapperFixtures.refusal(variant, expected.second))
+            assertEquals(
+                variant,
+                MappingError.Text(SanitizerError.UnsupportedCharacter(expected.first)),
+                MapperFixtures.refusal(variant, expected.second),
+            )
         }
     }
 
     @Test
-    fun theMarkerConstantIsTheHorizontalEllipsis() {
+    fun theMarkerConstantIsAPrivateUseCodePoint() {
         assertEquals(marker, com.neoterux.easyfact.invoicing.placeholder.PlaceholderResolver.PENDING_SEQUENCE_MARKER)
     }
 

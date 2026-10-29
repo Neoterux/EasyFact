@@ -35,7 +35,11 @@ sealed interface SanitizerError {
     /** The text holds a control character that survived space folding (BEL, DEL, NEL and the like). */
     data class ControlCharacter(override val field: String) : SanitizerError
 
-    /** The text holds a surrogate: any code point outside the BMP (an emoji) or a lone surrogate. */
+    /**
+     * The text holds a character that cannot be written to a document: a surrogate (any code point outside
+     * the BMP, an emoji, or a lone surrogate) or a private-use code point, which includes the preview marker
+     * of an unassigned sequential.
+     */
     data class UnsupportedCharacter(override val field: String) : SanitizerError
 
     /** A mandatory text is empty once cleaned. */
@@ -60,7 +64,9 @@ sealed interface SanitizerError {
  *    typed with a no-break space (research assumption A9).
  * 3. Any ISO control character that is left is refused as [SanitizerError.ControlCharacter].
  * 4. Any surrogate is refused as [SanitizerError.UnsupportedCharacter]. This covers every non-BMP code
- *    point and every lone surrogate; the owner chose to refuse emoji outright rather than pass them.
+ *    point and every lone surrogate; the owner chose to refuse emoji outright rather than pass them. A
+ *    private-use character is refused the same way: it has no portable meaning, and the preview marker of an
+ *    unassigned sequential is one, so refusing the class guarantees user text never collides with it.
  * 5. Runs of spaces collapse to one and the ends are trimmed.
  * 6. Empty text is refused when mandatory and becomes absent when optional.
  * 7. The length is compared with `maxLength` in UTF-16 code units (D-13), which is how the schema
@@ -118,7 +124,9 @@ object TextSanitizer {
             // TAB, CR and LF are ISO controls but are spacing, not content, so they fold first.
             val folded = if (c == '\t' || c == '\r' || c == '\n') ' ' else c
             if (Character.isISOControl(folded)) return Outcome.Err(SanitizerError.ControlCharacter(field))
-            if (Character.isSurrogate(folded)) return Outcome.Err(SanitizerError.UnsupportedCharacter(field))
+            if (Character.isSurrogate(folded) || Character.getType(folded) == Character.PRIVATE_USE.toInt()) {
+                return Outcome.Err(SanitizerError.UnsupportedCharacter(field))
+            }
             if (folded == ' ') {
                 pendingSpace = out.isNotEmpty()
             } else {

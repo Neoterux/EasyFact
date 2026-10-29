@@ -130,19 +130,19 @@ class PlaceholderResolverTest {
     @Test
     fun aPreviewOfSeqIsTheMarkerWithTheAssignedAtIssueNote() {
         val result = PlaceholderResolver.preview("{SEQ}", context())
-        assertEquals(PreviewText("…"), result.value)
+        assertEquals(PreviewText("\uE000"), result.value)
         assertEquals(listOf<EngineWarning>(EngineWarning.SequenceAssignedAtIssue), result.warnings)
     }
 
     @Test
-    fun theMarkerConstantIsTheHorizontalEllipsis() {
-        assertEquals("…", PlaceholderResolver.PENDING_SEQUENCE_MARKER)
+    fun theMarkerConstantIsAPrivateUseCodePoint() {
+        assertEquals("\uE000", PlaceholderResolver.PENDING_SEQUENCE_MARKER)
     }
 
     @Test
     fun twoSeqTokensInAPreviewGiveOneNote() {
         val result = preview("{SEQ} {SEQ}")
-        assertEquals("… …", result.value)
+        assertEquals("\uE000 \uE000", result.value)
         assertEquals(listOf<EngineWarning>(EngineWarning.SequenceAssignedAtIssue), result.warnings)
     }
 
@@ -221,7 +221,7 @@ class PlaceholderResolverTest {
     @Test
     fun unknownTokensAndSeqShareOneDistinctFirstOccurrenceList() {
         val result = PlaceholderResolver.preview("{FOO} {SEQ} {FOO} {SEQ}", context())
-        assertEquals("{FOO} … {FOO} …", result.value.text)
+        assertEquals("{FOO} \uE000 {FOO} \uE000", result.value.text)
         assertEquals(
             listOf<EngineWarning>(unknown("{FOO}"), EngineWarning.SequenceAssignedAtIssue),
             result.warnings,
