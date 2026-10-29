@@ -19,7 +19,17 @@ package com.neoterux.easyfact.invoicing.mapping
 
 import com.neoterux.easyfact.invoicing.factura.FacturaWriter
 
-/** RED-phase stub with the final signatures; the lookup arrives in the GREEN commit. */
+/**
+ * The writer's facet table, looked up by schema path, so that the mapping's own guards use the limits
+ * the writer enforces and never a second copy of them (D-34, D-13).
+ *
+ * [FacturaWriter.FACETS] is kept equal to the vendored schema by `FacturaFacetParityTest`, so a limit
+ * read here is the schema's limit. No length is written in this file on purpose: a number typed here
+ * could drift from the schema without any test noticing. Lengths are counted in UTF-16 code units
+ * (D-13), which is how `TextSanitizer` counts them.
+ *
+ * The path constants are spelt exactly as the facets spell them (attributes as an at-sign segment).
+ */
 internal object FieldLimits {
 
     const val ISSUER_LEGAL_NAME = "factura/infoTributaria/razonSocial"
@@ -36,7 +46,12 @@ internal object FieldLimits {
     const val CREDIT_TERM_UNIT = "factura/infoFactura/pagos/pago/unidadTiempo"
     const val RIMPE_LEGEND = "factura/infoTributaria/contribuyenteRimpe"
 
-    fun facet(path: String): FacturaWriter.Facet? = null
+    /** Every facet by its schema path, computed once. */
+    private val byPath: Map<String, FacturaWriter.Facet> by lazy { FacturaWriter.FACETS.associateBy { it.path } }
 
-    fun maxLength(path: String): Int? = null
+    /** The writer's facet at [path], or `null` when the writer has none there. */
+    fun facet(path: String): FacturaWriter.Facet? = byPath[path]
+
+    /** The `maxLength` of the facet at [path], or `null` when the path is unknown or the facet states none. */
+    fun maxLength(path: String): Int? = byPath[path]?.maxLength
 }

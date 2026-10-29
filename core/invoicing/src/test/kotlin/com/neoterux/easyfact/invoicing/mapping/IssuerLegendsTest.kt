@@ -159,6 +159,13 @@ class IssuerLegendsTest {
     }
 
     @Test
+    fun theDigitCapIsTheWritersAgenteRetencionLimit() {
+        val facet = FacturaWriter.FACETS.single { it.path == "factura/infoTributaria/agenteRetencion" }
+
+        assertEquals(facet.maxLength, WithholdingAgentResolution.MAX_DIGITS)
+    }
+
+    @Test
     fun resolutionsAreComparedByValue() {
         val first = (resolution("0012") as Outcome.Ok).value
         val second = (resolution("12") as Outcome.Ok).value
