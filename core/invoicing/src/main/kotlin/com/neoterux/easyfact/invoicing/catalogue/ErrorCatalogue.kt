@@ -74,7 +74,7 @@ object ErrorCatalogue {
     /** The entry for a document-writer refusal. */
     fun entryFor(error: FacturaError): CatalogueEntry = when (error) {
         is FacturaError.FieldTooLong -> CatalogueEntry.TEXT_TOO_LONG
-        is FacturaError.FieldTooShort -> CatalogueEntry.TEXT_EMPTY
+        is FacturaError.FieldTooShort -> CatalogueEntry.FIELD_INVALID_FORMAT
         is FacturaError.BlankField -> CatalogueEntry.TEXT_EMPTY
         is FacturaError.IllegalCharacter -> CatalogueEntry.TEXT_CONTROL_CHARACTER
         is FacturaError.DecimalOutOfRange -> CatalogueEntry.AMOUNT_OUT_OF_RANGE

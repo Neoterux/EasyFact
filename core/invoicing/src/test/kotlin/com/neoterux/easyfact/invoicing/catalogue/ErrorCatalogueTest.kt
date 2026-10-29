@@ -55,7 +55,7 @@ class ErrorCatalogueTest {
 
     private val factura: List<Pair<FacturaError, CatalogueEntry>> = listOf(
         FacturaError.FieldTooLong("e", 10, 11) to CatalogueEntry.TEXT_TOO_LONG,
-        FacturaError.FieldTooShort("e", 3, 2) to CatalogueEntry.TEXT_EMPTY,
+        FacturaError.FieldTooShort("e", 3, 2) to CatalogueEntry.FIELD_INVALID_FORMAT,
         FacturaError.BlankField("e") to CatalogueEntry.TEXT_EMPTY,
         FacturaError.IllegalCharacter("e") to CatalogueEntry.TEXT_CONTROL_CHARACTER,
         FacturaError.DecimalOutOfRange("e", "maxInclusive", "1") to CatalogueEntry.AMOUNT_OUT_OF_RANGE,

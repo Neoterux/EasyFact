@@ -19,6 +19,9 @@ package com.neoterux.easyfact.invoicing.mapping
 
 import com.neoterux.easyfact.invoicing.accesskey.AccessKey
 import com.neoterux.easyfact.invoicing.accesskey.KeyDerivation
+import com.neoterux.easyfact.invoicing.catalogue.CatalogueEntry
+import com.neoterux.easyfact.invoicing.catalogue.ErrorCatalogue
+import com.neoterux.easyfact.invoicing.factura.FacturaError
 import com.neoterux.easyfact.invoicing.result.Computed
 import com.neoterux.easyfact.invoicing.result.EngineWarning
 import com.neoterux.easyfact.invoicing.result.Outcome
@@ -664,7 +667,14 @@ class InvoiceMapperTest {
     fun theWritersFacetsRemainTheBackstopForWhatTheSanitiserAccepts() {
         val request = MapperFixtures.request(issuer = MapperFixtures.issuer(specialTaxpayerNumber = "ab"))
 
-        assertTrue(MapperFixtures.refusal("special taxpayer below its minimum", request) is MappingError.Writer)
+        val refusal = MapperFixtures.refusal("special taxpayer below its minimum", request)
+
+        assertEquals(
+            MappingError.Writer(FacturaError.FieldTooShort("contribuyenteEspecial", 3, 2)),
+            refusal,
+        )
+        // A value that is present but too short is a format problem, not "a mandatory text is missing".
+        assertEquals(CatalogueEntry.FIELD_INVALID_FORMAT, ErrorCatalogue.entryFor(refusal))
     }
 
     // --- accents and environment (D-12, D-17) ------------------------------------------------------------
