@@ -20,6 +20,7 @@ package com.neoterux.easyfact.invoicing.totals
 import com.neoterux.easyfact.invoicing.factura.LineTax
 import com.neoterux.easyfact.invoicing.factura.TaxTotal
 import com.neoterux.easyfact.invoicing.result.Computed
+import com.neoterux.easyfact.invoicing.result.EngineWarning
 import com.neoterux.easyfact.invoicing.result.Outcome
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -103,10 +104,26 @@ object InvoiceCalculator {
     private const val IVA_TAX_CODE = "2"
     private const val HUNDRED_EXPONENT = 2
 
-    /** Computes the lines, the groups and the totals, or names the first line that cannot be computed. */
+    /**
+     * Computes the lines, the groups and the totals, or names the first line that cannot be computed.
+     *
+     * Refusals are decided before any arithmetic: an empty list, then each line in order, checking its
+     * quantity sign, its unit price sign and its IVA code, and returning the first failure. The signs are
+     * read from the values as entered, so a quantity that would round to zero is still refused when it
+     * is negative. A negative lump-sum amount arrives here as a negative unit price.
+     *
+     * A zero quantity, a zero line total and a zero invoice total do not refuse (D-27): they are returned
+     * as warnings beside the result, in line order and then the invoice-level one.
+     *
+     * Groups are ordered by `codigoPorcentaje` compared as an integer (0, 2, 4, 10), never as a string,
+     * and are independent of the order of the lines; the lines keep the order they were given in.
+     */
     fun calculate(lines: List<LineInput>): Outcome<Computed<InvoiceTotals>, TotalsError> {
+        if (lines.isEmpty()) return Outcome.Err(TotalsError.NoLines)
         val rates = ArrayList<IvaRate>(lines.size)
         for ((index, line) in lines.withIndex()) {
+            if (line.quantity.signum() < 0) return Outcome.Err(TotalsError.NegativeQuantity(index))
+            if (line.unitPrice.signum() < 0) return Outcome.Err(TotalsError.NegativeUnitPrice(index))
             val rate = IvaRateTable.lookup(line.ivaRateCode)
                 ?: return Outcome.Err(TotalsError.UnknownIvaCode(index, line.ivaRateCode))
             if (rate.percent == null) return Outcome.Err(TotalsError.IvaCodeNotComputable(index, line.ivaRateCode))
@@ -140,7 +157,21 @@ object InvoiceCalculator {
             grandTotal = grandTotal,
             lineIvaSum = sum(calculated.map { it.tax.amount }),
         )
-        return Outcome.Ok(Computed(totals))
+        return Outcome.Ok(Computed(totals, warningsOf(totals)))
+    }
+
+    /** D-27: the non-blocking conditions, per line in order and then the invoice-level one. */
+    private fun warningsOf(totals: InvoiceTotals): List<EngineWarning> {
+        val warnings = ArrayList<EngineWarning>()
+        for ((index, line) in totals.lines.withIndex()) {
+            if (line.quantity.signum() == 0) {
+                warnings += EngineWarning.ZeroQuantity(index)
+            } else if (line.base.signum() == 0) {
+                warnings += EngineWarning.ZeroLineTotal(index)
+            }
+        }
+        if (totals.grandTotal.signum() == 0) warnings += EngineWarning.ZeroInvoiceTotal
+        return warnings
     }
 
     private fun calculateLine(line: LineInput, rate: IvaRate): CalculatedLine {
