@@ -118,7 +118,10 @@ sealed interface ReceptionState {
     data object Returned : ReceptionState
 
     /** Anything else, with the trimmed text as received. Never success. */
-    data class Unknown(val raw: String) : ReceptionState
+    data class Unknown(val raw: String) : ReceptionState {
+        /** Never renders [raw], which is unbounded text from the SRI. */
+        override fun toString(): String = "ReceptionState.Unknown"
+    }
 }
 
 /**
@@ -160,10 +163,16 @@ sealed interface AuthorizationState {
     data object Authorized : AuthorizationState
 
     /** `NO AUTORIZADO`, `RECHAZADO` or `RECHAZADA`, with the trimmed text as received. */
-    data class NotAuthorized(val raw: String) : AuthorizationState
+    data class NotAuthorized(val raw: String) : AuthorizationState {
+        /** Never renders [raw], which is unbounded text from the SRI. */
+        override fun toString(): String = "AuthorizationState.NotAuthorized"
+    }
 
     /** Anything else, including a missing or empty `estado`. Never success. */
-    data class Unknown(val raw: String) : AuthorizationState
+    data class Unknown(val raw: String) : AuthorizationState {
+        /** Never renders [raw], which is unbounded text from the SRI. */
+        override fun toString(): String = "AuthorizationState.Unknown"
+    }
 }
 
 /**

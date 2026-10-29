@@ -547,6 +547,30 @@ class SriResponseParserTest {
     // --- Privacy ---------------------------------------------------------------------------
 
     @Test
+    fun noRenderingOfAStateOrOfAnEntryHoldingOneContainsTheRawEstadoText() {
+        val secret = "ZZsecretZZ"
+        val unknownAuthorization = authorization(SriResponseFixtures.authorizationWithState(secret))
+        val notAuthorized = authorization(SriResponseFixtures.authorizationWithState("RECHAZADO"))
+        val states = listOf(
+            ReceptionState.Unknown(secret),
+            AuthorizationState.NotAuthorized(secret),
+            AuthorizationState.Unknown(secret),
+            unknownAuthorization.authorizations.single().state,
+            notAuthorized.authorizations.single().state,
+        )
+        // The parsed entries render their state, so a state that leaked would leak through them too.
+        val renderings = states.map { it.toString() } +
+            unknownAuthorization.authorizations.single().toString() +
+            notAuthorized.authorizations.single().toString() +
+            notAuthorized.toString()
+        for (rendering in renderings) {
+            assertFalse("a rendering leaked the estado text: $rendering", rendering.contains(secret))
+            assertFalse("a rendering leaked the estado text: $rendering", rendering.contains("RECHAZADO"))
+        }
+        assertEquals(AuthorizationState.Unknown(secret), unknownAuthorization.authorizations.single().state)
+    }
+
+    @Test
     fun noRenderingOfAParsedObjectContainsContent() {
         val returned = reception(SriResponseFixtures.receptionReturnedWithKey())
         val rejected = authorization(SriResponseFixtures.authorizationRejected())
