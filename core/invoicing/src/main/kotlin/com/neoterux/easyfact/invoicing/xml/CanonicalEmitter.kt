@@ -138,8 +138,8 @@ class CanonicalEmitter {
                 val c = value[i]
                 val legal = when {
                     c == '\t' || c == '\n' || c == '\r' -> true
-                    c in ' '..'퟿' -> true
-                    c in ''..'�' -> true
+                    c in ' '..'\uD7FF' -> true
+                    c in '\uE000'..'\uFFFD' -> true
                     Character.isHighSurrogate(c) -> {
                         val paired = i + 1 < value.length && Character.isLowSurrogate(value[i + 1])
                         if (paired) i++
