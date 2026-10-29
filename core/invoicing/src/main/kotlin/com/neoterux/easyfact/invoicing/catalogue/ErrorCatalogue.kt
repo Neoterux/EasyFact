@@ -68,6 +68,7 @@ object ErrorCatalogue {
 
     private const val TIPO_ERROR = "ERROR"
     private const val TIPO_WARNING = "ADVERTENCIA"
+    private const val TIPO_INFORMATIVE = "INFORMATIVO"
     private val WHITESPACE = Regex("\\s+")
 
     /** The entry for a document-writer refusal. */
@@ -192,10 +193,14 @@ object ErrorCatalogue {
      * The identifier is trimmed and must then be non-empty ASCII digits, read as an integer, so `"039"` and
      * `" 39 "` both resolve to code 39; anything else, a non-ASCII digit included, is unknown, as is a number too
      * large for an `Int`. An unknown identifier resolves to [CatalogueEntry.SRI_UNKNOWN_WARNING] when the tipo is
-     * ADVERTENCIA and to [CatalogueEntry.SRI_UNKNOWN_ERROR] otherwise (D-04).
+     * ADVERTENCIA or INFORMATIVO, both of which the SRI labels non-fatal, and to [CatalogueEntry.SRI_UNKNOWN_ERROR]
+     * otherwise (D-04).
      *
-     * Severity comes from the tipo first, then from the entry's category, and an undeterminable severity is an
-     * error, so a rejection is never hidden and a warning is never reported as an error (SRI-08, D-06, research A6).
+     * Severity comes from the tipo first (ERROR, ADVERTENCIA), then from the entry's category, and an undeterminable
+     * severity is an error, so a rejection is never hidden and a warning is never reported as an error (SRI-08,
+     * D-06, research A6). An INFORMATIVO message with an uncatalogued identifier is a warning; an INFORMATIVO message
+     * with a catalogued identifier keeps the severity of its entry, because the catalogue knows that code better
+     * than the label does. Only a missing or unrecognised tipo falls back to an error.
      */
     fun explain(message: SriMessage): ExplainedMessage {
         val tipo = normalisedTipo(message.type)
@@ -211,11 +216,17 @@ object ErrorCatalogue {
     }
 
     private fun unknownFor(tipo: String?): CatalogueEntry =
-        if (tipo == TIPO_WARNING) CatalogueEntry.SRI_UNKNOWN_WARNING else CatalogueEntry.SRI_UNKNOWN_ERROR
+        if (tipo == TIPO_WARNING || tipo == TIPO_INFORMATIVE) {
+            CatalogueEntry.SRI_UNKNOWN_WARNING
+        } else {
+            CatalogueEntry.SRI_UNKNOWN_ERROR
+        }
 
     private fun severityOf(tipo: String?, entry: CatalogueEntry): Severity {
         if (tipo == TIPO_ERROR) return Severity.ERROR
         if (tipo == TIPO_WARNING) return Severity.WARNING
+        // An INFORMATIVO message the catalogue does not know is non-fatal; a known code keeps its entry's severity.
+        if (tipo == TIPO_INFORMATIVE && entry == CatalogueEntry.SRI_UNKNOWN_WARNING) return Severity.WARNING
         return if (entry.category == Category.WARNING) Severity.WARNING else Severity.ERROR
     }
 

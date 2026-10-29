@@ -264,7 +264,7 @@ enum class CatalogueEntry(
     /** An SRI message of tipo ERROR, or of an undeterminable tipo, whose identifier is not catalogued (D-04). */
     SRI_UNKNOWN_ERROR(Source.SRI, null, Category.UNKNOWN_OUTCOME, setOf(Stage.RECEPTION, Stage.AUTHORIZATION), NextAction.CONTACT_SRI, null),
 
-    /** An SRI message of tipo ADVERTENCIA whose identifier is not catalogued (D-04). */
+    /** An SRI message of tipo ADVERTENCIA or INFORMATIVO whose identifier is not catalogued (D-04). */
     SRI_UNKNOWN_WARNING(Source.SRI, null, Category.WARNING, setOf(Stage.RECEPTION, Stage.AUTHORIZATION), NextAction.NONE, null),
 
     /** The shared entry for a failure only an engine bug can cause: a writer, access-key, rehydration or signing precondition broke (D-09). The user is told to export diagnostics. */

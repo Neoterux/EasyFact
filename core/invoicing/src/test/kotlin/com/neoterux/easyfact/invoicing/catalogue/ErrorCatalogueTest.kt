@@ -316,7 +316,31 @@ class ErrorCatalogueTest {
         assertEquals(Severity.ERROR, ErrorCatalogue.explain(SriMessage("99", "m", null, null)).severity)
         assertEquals(Severity.ERROR, ErrorCatalogue.explain(SriMessage("39", "m", null, "INFORMATIVO")).severity)
         assertEquals(Severity.WARNING, ErrorCatalogue.explain(SriMessage("60", "m", null, "INFORMATIVO")).severity)
-        assertEquals(CatalogueEntry.SRI_UNKNOWN_ERROR, ErrorCatalogue.explain(SriMessage("99", "m", null, "INFORMATIVO")).entry)
+    }
+
+    @Test
+    fun anInformativeMessageWithAnUncataloguedIdentifierIsAWarningNotARejection() {
+        val explained = ErrorCatalogue.explain(SriMessage("99", "m", null, "INFORMATIVO"))
+
+        assertEquals(CatalogueEntry.SRI_UNKNOWN_WARNING, explained.entry)
+        assertEquals(Severity.WARNING, explained.severity)
+        assertEquals(Severity.WARNING, ErrorCatalogue.explain(SriMessage("", "m", null, " informativo ")).severity)
+    }
+
+    @Test
+    fun anInformativeUnknownDoesNotOutrankARealError() {
+        val ranked = MessageRanking.rank(
+            listOf(SriMessage("99", "m", null, "INFORMATIVO"), SriMessage("39", "m", null, "ERROR")),
+        )
+
+        assertEquals(Severity.ERROR, ranked.headline?.severity)
+        assertEquals(CatalogueEntry.SRI_39, ranked.headline?.entry)
+    }
+
+    @Test
+    fun anUnrecognisedTipoWithAnUncataloguedIdentifierIsStillAnError() {
+        assertEquals(Severity.ERROR, ErrorCatalogue.explain(SriMessage("99", "m", null, "AVISO")).severity)
+        assertEquals(CatalogueEntry.SRI_UNKNOWN_ERROR, ErrorCatalogue.explain(SriMessage("99", "m", null, "AVISO")).entry)
     }
 
     @Test
