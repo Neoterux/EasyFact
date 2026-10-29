@@ -1,3 +1,86 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:locale="es">
     <string name="app_name">EasyFact</string>
+
+    <!--
+        Error catalogue prose (SRI-13, D-03, D-08). One string per CatalogueEntry, named by its resourceName,
+        in entry order. The raw SRI code and message are shown beside each sentence by the screens, so no
+        sentence repeats the code. CatalogueStringsTest fails when an entry has no string or a blank one.
+    -->
+
+    <!-- SRI codes: Ficha v2.34 section 11, main table, EMISOR table and warnings -->
+    <string name="catalogue_sri_2">Su RUC no figura como activo en el SRI. Regularice su situación en el portal del SRI y vuelva a intentarlo.</string>
+    <string name="catalogue_sri_10">El SRI registra su establecimiento como clausurado. Podrá emitir de nuevo cuando termine la clausura; consulte el estado en el portal del SRI.</string>
+    <string name="catalogue_sri_26">La factura superó el tamaño máximo que acepta el SRI. Esto no depende de usted: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_27">Según el SRI, su tipo de contribuyente no puede emitir comprobantes electrónicos. Comuníquese con el SRI para aclararlo.</string>
+    <string name="catalogue_sri_28">Falta aceptar el acuerdo de medios electrónicos en el SRI. Acéptelo en el portal del SRI y vuelva a intentarlo.</string>
+    <string name="catalogue_sri_34">El SRI indica que este comprobante no fue autorizado dentro de su solicitud de emisión. Revise su registro de emisión electrónica en el portal del SRI.</string>
+    <string name="catalogue_sri_35">El SRI no aceptó la factura porque no cumple con lo que exige. Esto no depende de usted: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_36">La versión de factura que usa la aplicación ya no está vigente en el SRI. Actualice la aplicación e inténtelo de nuevo.</string>
+    <string name="catalogue_sri_37">Su RUC no tiene autorización del SRI para emitir comprobantes electrónicos. Solicite o complete esa autorización en el portal del SRI.</string>
+    <string name="catalogue_sri_39">El SRI no reconoce la firma de su certificado. Revise que la fecha y la hora del teléfono sean correctas y que su certificado esté vigente y sea el suyo; luego vuelva a enviar la misma factura.</string>
+    <string name="catalogue_sri_40">El SRI no pudo leer el certificado con el que se firmó la factura. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_42">Su certificado de firma electrónica ha caducado. Renueve el certificado y cárguelo de nuevo en la aplicación.</string>
+    <string name="catalogue_sri_43">El SRI ya tiene registrada esta clave de acceso, así que la factura pudo haberse autorizado antes. Consulte primero el estado de la factura y no la envíe otra vez.</string>
+    <string name="catalogue_sri_45">El SRI ya tiene registrado este número secuencial. Revise el secuencial inicial en la configuración; la aplicación nunca lo aumenta por sí sola.</string>
+    <string name="catalogue_sri_46">El SRI indica que un RUC de la factura no existe. Revise su RUC y el de su cliente, corrija el dato y vuelva a enviar la misma factura.</string>
+    <string name="catalogue_sri_47">El SRI no reconoce el tipo de comprobante enviado. Esto no depende de usted: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_48">El SRI no tiene un modelo definido para este tipo de comprobante. Esto no depende de usted: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_49">El SRI recibió la solicitud sin los datos necesarios. Esto no depende de usted: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_50">El SRI tuvo un error interno. Espere unos minutos e inténtelo de nuevo; suele resolverse solo.</string>
+    <string name="catalogue_sri_52">Los cálculos de la factura no coinciden con los que hace el SRI. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_56">El SRI registra como cerrado el establecimiento desde el que emite. Revise el estado de su establecimiento en el portal del SRI.</string>
+    <string name="catalogue_sri_57">El SRI suspendió su autorización de emisión, o no estaba autorizado en la fecha de la factura. Comuníquese con el SRI.</string>
+    <string name="catalogue_sri_58">La clave de acceso de la factura no coincide con sus datos. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_59">El SRI no encuentra la identificación del cliente. Verifique el número con su cliente.</string>
+    <string name="catalogue_sri_60">Este comprobante se procesó en el ambiente de pruebas del SRI y no tiene validez legal.</string>
+    <string name="catalogue_sri_62">El SRI considera incorrecta la identificación del cliente, por ejemplo una cédula que no pasa la verificación. Revise el número con su cliente.</string>
+    <string name="catalogue_sri_63">El SRI indica que su RUC está clausurado por procesos de control. Comuníquese con el SRI.</string>
+    <string name="catalogue_sri_64">El código del documento de sustento no está en el catálogo del SRI. Esto no debería ocurrir con las facturas de esta aplicación: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_65">El SRI recibió la factura fuera del plazo permitido para su fecha de emisión. Revise la fecha y vuelva a enviarla.</string>
+    <string name="catalogue_sri_67">El SRI no pudo leer una fecha de la factura. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_68">El SRI no encuentra el documento de sustento como comprobante electrónico. Revise ese dato si corresponde.</string>
+    <string name="catalogue_sri_69">El SRI no encuentra la identificación del comprador, normalmente un RUC que no consta en su registro. Revise el número, corríjalo y vuelva a enviar la misma factura.</string>
+    <string name="catalogue_sri_70">El SRI todavía está procesando esta factura. Espere, hasta 24 horas si hace falta, y no la envíe otra vez.</string>
+    <string name="catalogue_sri_80">La clave de acceso de la consulta tiene una estructura incorrecta. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_82">El SRI detectó un error en una fecha de transporte, que no corresponde a una factura. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_sri_92">El SRI no pudo validar el monto de una devolución del IVA, que no corresponde a una factura. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+
+    <!-- Unknown SRI messages (D-04): generic, because the code is not catalogued -->
+    <string name="catalogue_sri_unknown_error">El SRI respondió con un mensaje que la aplicación no conoce. No dé la factura por rechazada: consulte su estado y, si el problema continúa, comuníquese con el SRI.</string>
+    <string name="catalogue_sri_unknown_warning">El SRI envió una advertencia que la aplicación no conoce. Léala junto a este aviso; la factura puede seguir su curso.</string>
+
+    <!-- Engine refusals and warnings -->
+    <string name="catalogue_engine_bug">Ocurrió un error interno de la aplicación al preparar la factura. Exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_text_control_character">Un texto contiene un carácter invisible que no se puede escribir en la factura, por ejemplo uno pegado desde otro programa. Bórrelo y escriba el texto de nuevo.</string>
+    <string name="catalogue_text_unsupported_character">Un texto contiene un carácter que la factura no admite, por ejemplo un emoji. Quítelo y escriba el texto de nuevo.</string>
+    <string name="catalogue_text_empty">Falta un texto obligatorio. Complete el campo vacío.</string>
+    <string name="catalogue_text_too_long">Un texto es más largo de lo que permite el SRI. Acórtelo.</string>
+    <string name="catalogue_field_invalid_format">Un dato no tiene la forma que exige el SRI. Revíselo y corríjalo.</string>
+    <string name="catalogue_amount_out_of_range">Un importe es demasiado grande o tiene demasiados decimales para el SRI. Revise las cantidades y los precios.</string>
+    <string name="catalogue_no_lines">La factura no tiene ninguna línea. Agregue al menos una.</string>
+    <string name="catalogue_negative_quantity">Una línea tiene una cantidad negativa. Corríjala.</string>
+    <string name="catalogue_negative_unit_price">Una línea tiene un precio unitario negativo. Corríjalo.</string>
+    <string name="catalogue_unknown_iva_code">Una línea usa un porcentaje de IVA que la aplicación no conoce. Elija otro.</string>
+    <string name="catalogue_iva_code_not_computable">Una línea usa el IVA diferenciado, que la aplicación no puede calcular. Elija otro porcentaje de IVA.</string>
+    <string name="catalogue_consumidor_final_cap_exceeded">Una factura a consumidor final no puede superar el monto máximo que fija el SRI. Reduzca el total o registre los datos de su cliente.</string>
+    <string name="catalogue_consumidor_final_identification_mismatch">La factura es para consumidor final, pero la identificación no es la que corresponde. Revise los datos del cliente.</string>
+    <string name="catalogue_too_many_additional_fields">La factura tiene más datos adicionales de los que admite el SRI. Quite alguno.</string>
+    <string name="catalogue_provider_ruc_malformed">El RUC del proveedor de la aplicación debe tener 13 dígitos. Revíselo en la configuración.</string>
+    <string name="catalogue_withholding_agent_invalid">El número de resolución de agente de retención está vacío, no es numérico o es demasiado largo. Revíselo en la configuración.</string>
+    <string name="catalogue_preview_marker_in_document">Un texto de la factura todavía contiene el marcador provisional del número. Esto no debería ocurrir: exporte el diagnóstico y compártalo para recibir ayuda.</string>
+    <string name="catalogue_identification_malformed">La identificación del cliente está vacía o no tiene el largo o los dígitos correctos. Revísela y corríjala.</string>
+    <string name="catalogue_identification_check_digit">La identificación del cliente no pasa la verificación del último dígito. Revise el número con su cliente.</string>
+    <string name="catalogue_identification_not_consumidor_final">Para consumidor final se debe usar la identificación fija que corresponde. Revise ese dato.</string>
+    <string name="catalogue_certificate_key_unsupported">Su certificado no sirve para firmar: el SRI exige una clave RSA de 2048 bits. Solicite un certificado compatible.</string>
+    <string name="catalogue_certificate_not_valid_now">Su certificado no está vigente en este momento, porque aún no empieza o ya venció. Revise la fecha del teléfono o renueve el certificado.</string>
+    <string name="catalogue_certificate_key_mismatch">La clave de su certificado no corresponde al certificado. Cargue otra vez el archivo original o solicite uno nuevo.</string>
+    <string name="catalogue_certificate_unlock_failed">No se pudo abrir su certificado. Revise la contraseña e inténtelo de nuevo; si es correcta, el archivo puede estar dañado.</string>
+    <string name="catalogue_response_soap_fault">El SRI respondió con un error y se desconoce si recibió la factura. No la dé por rechazada ni la envíe otra vez: consulte primero su estado.</string>
+    <string name="catalogue_response_unexpected">La respuesta del SRI no tiene la forma esperada, así que se desconoce si recibió la factura. Consulte primero su estado.</string>
+    <string name="catalogue_response_malformed">La respuesta del SRI no se pudo leer, así que se desconoce si recibió la factura. Consulte primero su estado.</string>
+    <string name="catalogue_warning_zero_quantity">¿Está seguro de que la cantidad es cero?</string>
+    <string name="catalogue_warning_zero_line_total">¿Está seguro de que el total de esta línea es cero?</string>
+    <string name="catalogue_warning_zero_invoice_total">¿Está seguro de que el total de la factura es cero?</string>
+    <string name="catalogue_warning_unrecognised_token">No se reconoce el marcador %1$s; se usará tal cual.</string>
+    <string name="catalogue_warning_sequence_assigned_at_issue">El número de la factura se asigna al emitirla.</string>
 </resources>
