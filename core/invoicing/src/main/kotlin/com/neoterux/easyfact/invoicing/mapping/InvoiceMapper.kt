@@ -27,6 +27,8 @@ import com.neoterux.easyfact.invoicing.factura.Payment
 import com.neoterux.easyfact.invoicing.factura.TaxInfo
 import com.neoterux.easyfact.invoicing.result.Computed
 import com.neoterux.easyfact.invoicing.result.Outcome
+import com.neoterux.easyfact.invoicing.text.SanitizerError
+import com.neoterux.easyfact.invoicing.totals.BuyerGuardError
 import com.neoterux.easyfact.invoicing.totals.InvoiceCalculator
 import com.neoterux.easyfact.invoicing.totals.InvoiceTotals
 import com.neoterux.easyfact.invoicing.totals.LineInput
@@ -42,8 +44,10 @@ data class MappedInvoice(
 )
 
 /**
- * Why an [InvoiceRequest] could not be mapped. Plan 03-08 adds the sanitiser, field-limit and
- * `infoAdicional` variants.
+ * Why an [InvoiceRequest] could not be mapped.
+ *
+ * Every variant is value-free (NFR-04): it names a field, a count or a protocol code and never the
+ * text, identification or amount the user or the customer supplied, because errors reach diagnostics.
  */
 sealed interface MappingError {
 
@@ -52,6 +56,24 @@ sealed interface MappingError {
 
     /** The writer refused the mapped [Factura]. */
     data class Writer(val error: FacturaError) : MappingError
+
+    /** The sanitiser refused a text; [error] names the field and, for a length, the two lengths. */
+    data class Text(val error: SanitizerError) : MappingError
+
+    /** A buyer-dependent rule refused the invoice (the consumidor-final cap). */
+    data class BuyerGuard(val error: BuyerGuardError) : MappingError
+
+    /** `infoAdicional` would hold [actualEntries] entries, more than the schema's [maxEntries]. */
+    data class TooManyAdditionalFields(val maxEntries: Int, val actualEntries: Int) : MappingError
+
+    /** A text destined for [field] holds the preview marker of an unassigned sequential (D-37). */
+    data class PreviewMarkerInDocument(val field: String) : MappingError
+
+    /** The issuer's provider RUC is set but is not exactly thirteen ASCII digits (D-19). */
+    data object ProviderRucMalformed : MappingError
+
+    /** The buyer type is consumidor final but the identification is not the consumidor-final one (D-31). */
+    data object ConsumidorFinalIdentificationMismatch : MappingError
 }
 
 /**

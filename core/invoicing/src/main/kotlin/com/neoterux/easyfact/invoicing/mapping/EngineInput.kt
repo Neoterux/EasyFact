@@ -52,8 +52,10 @@ enum class BuyerIdType(val code: String) {
 /**
  * The issuer, one per install (SETUP-01).
  *
- * Plan 03-08 adds the RIMPE legend, the withholding-agent resolution and the provider RUC with
- * defaults; they are not here yet so that the tracer does not pre-empt those decisions.
+ * [rimpeLegend], [withholdingAgent] and [providerRuc] default to "not applicable": the legend is
+ * [RimpeLegend.NONE], the withholding-agent resolution is absent, and the provider RUC is off (D-19;
+ * Phase 4's SETUP-04 toggle sets it). A set [providerRuc] is written as the `RUC Proveedor`
+ * `infoAdicional` entry and must be thirteen ASCII digits.
  */
 data class IssuerProfile(
     val ruc: String,
@@ -66,6 +68,9 @@ data class IssuerProfile(
     val emissionPoint: String,
     val accountingRequired: Boolean,
     val specialTaxpayerNumber: String? = null,
+    val rimpeLegend: RimpeLegend = RimpeLegend.NONE,
+    val withholdingAgent: WithholdingAgentResolution? = null,
+    val providerRuc: String? = null,
 ) {
     override fun toString(): String = "IssuerProfile(redacted)"
 }
