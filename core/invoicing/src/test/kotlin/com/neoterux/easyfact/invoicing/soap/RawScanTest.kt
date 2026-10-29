@@ -213,11 +213,11 @@ class RawScanTest {
     // --- namespaces ----------------------------------------------------------------------------
 
     @Test
-    fun aPrefixedAutorizacionInheritsANamespace() {
+    fun aPrefixedAutorizacionThatDeclaresItsOwnPrefixIsStandalone() {
         val prefixed = "<ns3:autorizacion xmlns:ns3=\"http://example.com/ns\"><ns3:comprobante>x</ns3:comprobante></ns3:autorizacion>"
         val body = utf8(response(prefixed))
         val slice = RawScan.authorizations(body)!!.single()
-        assertTrue(slice.inheritsNamespace)
+        assertFalse(slice.inheritsNamespace)
         assertEquals(prefixed, textOf(body, slice.element))
         assertEquals("x", textOf(body, slice.comprobanteContent!!))
     }
@@ -229,11 +229,60 @@ class RawScanTest {
     }
 
     @Test
-    fun anAutorizacionDeclaringItsOwnDefaultNamespaceIsReportedAsInheriting() {
-        // It carries its own declaration, so the slice is standalone as far as namespaces go; the
-        // scanner still reports true because it cannot tell a redeclaration from an inheritance
-        // without resolving it, and a false negative here would hand Phase 7 a broken element.
+    fun anAutorizacionDeclaringItsOwnDefaultNamespaceIsStandalone() {
+        // It carries its own declaration, so the slice stands alone as far as namespaces go.
         val slice = scan(response(authorization(cdataComprobante, " xmlns=\"http://example.com/own\""))).single()
+        assertFalse(slice.inheritsNamespace)
+    }
+
+    @Test
+    fun aPrefixedAutorizacionWhosePrefixIsDeclaredOnAnAncestorInherits() {
+        // ns2 is declared on the response wrapper by the response() helper, outside the slice.
+        val prefixed = "<ns2:autorizacion><ns2:estado>AUTORIZADO</ns2:estado></ns2:autorizacion>"
+        assertTrue(scan(response(prefixed)).single().inheritsNamespace)
+    }
+
+    @Test
+    fun aPrefixedChildWhosePrefixIsDeclaredOnAnAncestorInheritsEvenWhenTheRootIsUnprefixed() {
+        val inner = "<autorizacion><ns2:estado>AUTORIZADO</ns2:estado><comprobante>x</comprobante></autorizacion>"
+        assertTrue(scan(response(inner)).single().inheritsNamespace)
+    }
+
+    @Test
+    fun aPrefixedAttributeWhosePrefixIsDeclaredOnAnAncestorInherits() {
+        val inner = "<autorizacion><estado ns2:kind=\"x\">AUTORIZADO</estado><comprobante>x</comprobante></autorizacion>"
+        assertTrue(scan(response(inner)).single().inheritsNamespace)
+    }
+
+    @Test
+    fun aPrefixDeclaredInsideTheSliceIsStandalone() {
+        val inner = "<autorizacion><ns9:estado xmlns:ns9=\"http://example.com/ns9\" ns9:kind=\"x\">AUTORIZADO</ns9:estado>" +
+            "<comprobante>x</comprobante></autorizacion>"
+        assertFalse(scan(response(inner)).single().inheritsNamespace)
+    }
+
+    @Test
+    fun theXmlPrefixNeedsNoDeclaration() {
+        val inner = "<autorizacion><estado xml:space=\"preserve\">AUTORIZADO</estado><comprobante>x</comprobante></autorizacion>"
+        assertFalse(scan(response(inner)).single().inheritsNamespace)
+    }
+
+    @Test
+    fun anEmptyDefaultNamespaceOnAnAncestorDeclaresNothing() {
+        val slice = scan(response(authorization(cdataComprobante), " xmlns=\"\"")).single()
+        assertFalse(slice.inheritsNamespace)
+    }
+
+    @Test
+    fun anAutorizacionThatUndeclaresAnAncestorDefaultNamespaceIsStandalone() {
+        val inner = authorization(cdataComprobante, " xmlns=\"\"")
+        val slice = scan(response(inner, " xmlns=\"http://example.com/default\"")).single()
+        assertFalse(slice.inheritsNamespace)
+    }
+
+    @Test
+    fun aSelfClosingAutorizacionUnderAnAncestorDefaultNamespaceInherits() {
+        val slice = scan(response("<autorizacion/>", " xmlns=\"http://example.com/default\"")).single()
         assertTrue(slice.inheritsNamespace)
     }
 

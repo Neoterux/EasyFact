@@ -27,8 +27,9 @@ data class ByteSpan(val start: Int, val endExclusive: Int)
  * @property comprobanteContent what lies between its direct `comprobante` child's start and end
  *   tags, exactly as received (a CDATA section with its delimiters, or escaped text); an empty
  *   span for a self-closing `<comprobante/>`; `null` when there is no such child
- * @property inheritsNamespace whether [element] depends on a namespace declaration it does not
- *   carry itself; when `false` the slice is a standalone XML element
+ * @property inheritsNamespace whether anything inside [element], the element itself, a descendant or
+ *   an attribute, depends on a namespace declaration that lies outside the slice; when `false` the
+ *   slice is a standalone XML element
  */
 data class AuthorizationSlice(
     val element: ByteSpan,
@@ -58,8 +59,12 @@ data class AuthorizationSlice(
  * That holds for every sample in the SRI's technical sheet (v2.34, pages 18-19): `autorizacion`
  * is unprefixed and no ancestor declares a default namespace. If the SRI ever changes that, the
  * flag says so and the caller must fail loudly rather than hand on a slice that cannot stand
- * alone. The flag is conservative: any default-namespace declaration on the element or an
- * ancestor, or a prefixed element name, sets it.
+ * alone. The flag is set when any element or attribute name inside the slice uses a prefix that is
+ * not declared inside the slice, or when an unprefixed element falls under a non-empty default
+ * namespace declared on an ancestor of the slice. A declaration on the element itself or on one of
+ * its descendants is carried by the slice, so it does not set the flag; `xmlns=""` on an ancestor
+ * declares no namespace and does not set it either. The prefix `xml` is bound by the XML
+ * specification and never counts.
  *
  * This is not a validator. It returns `null` for the constructs it cannot scan past (an
  * unterminated CDATA section, comment, processing instruction or tag, an end tag that does not
@@ -78,6 +83,7 @@ object RawScan {
 
     private const val AUTHORIZATION = "autorizacion"
     private const val COMPROBANTE = "comprobante"
+    private const val XML_PREFIX = "xml"
 
     private val LT = '<'.code.toByte()
     private val GT = '>'.code.toByte()
@@ -95,7 +101,12 @@ object RawScan {
     private val DECLARATION_START = ascii("<!")
     private val END_TAG_START = ascii("</")
 
-    private class Frame(val qualifiedName: String, val declaresDefaultNamespace: Boolean)
+    /**
+     * An open element. [defaultNamespace] is `null` when the element declares no default namespace,
+     * `true` when it declares a non-empty one and `false` for `xmlns=""`, which undeclares it.
+     * [prefixes] are the prefixes the element declares with `xmlns:prefix`.
+     */
+    private class Frame(val qualifiedName: String, val defaultNamespace: Boolean?, val prefixes: Set<String>)
 
     /**
      * The `autorizacion` elements of [bytes] in document order, or `null` when the bytes cannot be
@@ -170,7 +181,9 @@ object RawScan {
                     if (j == nameStart) return null
                     val name = latin1(bytes, nameStart, j)
 
-                    var declaresDefault = false
+                    var defaultNamespace: Boolean? = null
+                    val declaredPrefixes = HashSet<String>()
+                    val attributeNames = ArrayList<String>()
                     var selfClosing = false
                     while (true) {
                         while (j < bytes.size && isWhitespace(bytes[j])) j++
@@ -199,22 +212,36 @@ object RawScan {
                         if (quote != SINGLE_QUOTE && quote != DOUBLE_QUOTE) return null
                         val close = indexOf(bytes, quote, j + 1)
                         if (close < 0) return null
+                        val valueIsEmpty = close == j + 1
                         j = close + 1
-                        if (attribute == "xmlns") declaresDefault = true
+                        when {
+                            attribute == "xmlns" -> defaultNamespace = !valueIsEmpty
+                            attribute.startsWith("xmlns:") -> declaredPrefixes.add(attribute.substring("xmlns:".length))
+                            else -> attributeNames.add(attribute)
+                        }
                     }
                     val tagEnd = j
 
                     val localName = name.substringAfterLast(':')
                     val frameIndex = stack.size
 
-                    if (openIndex < 0 && localName == AUTHORIZATION) {
-                        val inherits = name.contains(':') || declaresDefault || stack.any { it.declaresDefaultNamespace }
+                    // Whether this element or one of its attributes needs a declaration outside the slice it is in.
+                    // A new slice starts at this element; an element inside an open one belongs to that slice.
+                    val startsSlice = openIndex < 0 && localName == AUTHORIZATION
+                    if (startsSlice || openIndex >= 0) {
+                        val needsOutside = needsDeclarationOutsideSlice(
+                            name, attributeNames, defaultNamespace, declaredPrefixes, stack, if (startsSlice) frameIndex else openIndex,
+                        )
+                        if (startsSlice) openInherits = needsOutside else if (needsOutside) openInherits = true
+                    }
+
+                    if (startsSlice) {
+                        val inherits = openInherits
                         if (selfClosing) {
                             slices.add(AuthorizationSlice(ByteSpan(i, tagEnd), null, inherits))
                         } else {
                             openIndex = frameIndex
                             openStart = i
-                            openInherits = inherits
                             content = null
                             capturingIndex = -1
                         }
@@ -229,13 +256,48 @@ object RawScan {
 
                     if (!selfClosing) {
                         if (stack.size >= MAX_ELEMENT_DEPTH) return null
-                        stack.add(Frame(name, declaresDefault))
+                        stack.add(Frame(name, defaultNamespace, declaredPrefixes))
                     }
                     i = tagEnd
                 }
             }
         }
         return if (stack.isEmpty()) slices else null
+    }
+
+    /**
+     * Whether an element called [name] with the given non-declaration [attributes] and its own declarations
+     * ([defaultNamespace], [declaredPrefixes]) depends on a namespace declaration outside the slice whose
+     * root is the frame at [sliceIndex]. [stack] holds the open ancestors; those at [sliceIndex] and above
+     * belong to the slice, so what they declare travels with it.
+     */
+    private fun needsDeclarationOutsideSlice(
+        name: String,
+        attributes: List<String>,
+        defaultNamespace: Boolean?,
+        declaredPrefixes: Set<String>,
+        stack: List<Frame>,
+        sliceIndex: Int,
+    ): Boolean {
+        fun prefixDeclaredInSlice(prefix: String): Boolean =
+            prefix == XML_PREFIX || prefix in declaredPrefixes ||
+                (sliceIndex until stack.size).any { prefix in stack[it].prefixes }
+
+        val colon = name.indexOf(':')
+        if (colon >= 0) {
+            if (!prefixDeclaredInSlice(name.substring(0, colon))) return true
+        } else if (defaultNamespace == null) {
+            // Unprefixed and no declaration of its own: the nearest ancestor default decides.
+            for (index in stack.indices.reversed()) {
+                val declared = stack[index].defaultNamespace ?: continue
+                if (index < sliceIndex && declared) return true
+                break
+            }
+        }
+        return attributes.any { attribute ->
+            val attributeColon = attribute.indexOf(':')
+            attributeColon >= 0 && !prefixDeclaredInSlice(attribute.substring(0, attributeColon))
+        }
     }
 
     private fun ascii(text: String): ByteArray = text.toByteArray(Charsets.US_ASCII)
