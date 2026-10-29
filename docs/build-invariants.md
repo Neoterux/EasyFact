@@ -16,7 +16,7 @@ as much a part of the gate as its failure message.
 | --- | --- | --- |
 | `./gradlew check` | the per-commit gates (everything except the release-artifact gates) | every push and pull request, and locally before you commit |
 | `./gradlew verifyRelease` | the release-artifact gates: `checkReleaseSize`, `verifyKeepRules`, `verifyReleaseUrlHosts` | every push and pull request, and locally before a release |
-| `./gradlew :app:verifyDeviceMatrix` | the device matrix: the golden-byte signing test and the parser-hardening test on API 31, 34 and 37 emulators, and the check that every device really ran | locally, when signing, certificate loading or the signer's inputs change; not in CI yet |
+| `./gradlew :app:verifyDeviceMatrix` | the device matrix: the golden-byte signing test and the parser-hardening test on API 31, 34 and 37 emulators, and the check that every device really ran | locally, when signing, certificate loading, the signer's inputs, the response codec's parser setup or `ResponseGuard` change; not in CI yet |
 
 The first two are run by `.github/workflows/check.yml`. The release gates are off
 `check` on purpose: they force a full release build and an App Bundle, which is
@@ -28,7 +28,7 @@ emulators cost minutes and gigabytes of system images, and the workflow has neve
 run, so adding them there would put an unproven job in front of an unproven
 workflow. The price of the exception is that a gate off `check` can be forgotten:
 run it whenever `:core:invoicing` signing code, `:core:testing`'s certificate minting,
-or the PKCS#12 handling changes. A CI job for it, triggered manually, is the intended
+the PKCS#12 handling, or the SRI response codec's parser setup or `ResponseGuard` changes. A CI job for it, triggered manually, is the intended
 next step once the base workflow has run once. See section 14 below.
 
 The whole build runs with the Gradle configuration cache enabled and
@@ -608,6 +608,12 @@ with 0 failures, 0 errors and 0 skipped on each. The rejection cases logged: API
 `wrong-password` `password-refused-after-control-opened` and `wrong-password-modern-aes`
 `encoding-refused-below-api-34`; API 34 and 37 `password-refused-after-control-opened` for both.
 
+**Result (2026-10-29, `aosp` images, no image-source override).** One `:app:verifyDeviceMatrix` run
+after `ParserHardeningTest` was added, on results newer than a start marker. API 31, 34 and 37 each
+ran 12 instrumented tests (one smoke test, the seven golden cases and the four parser-hardening
+cases) with 0 failures, 0 errors and 0 skipped, and every `ParserHardeningTest` case passed on all
+three levels. The golden-case outcomes are as in the 2026-10-28 result.
+
 **Assumption for API 32 and 33.** They are not measured. The threshold is 34, the lowest level
 measured to open the file, so 32 and 33 are treated as refusing like 31. If an emulator on either
 level opens the file the test fails, and the threshold must be lowered after measuring it. The
@@ -639,8 +645,8 @@ What it cannot see: parser behaviour on any image outside the matrix (a vendor b
 a device with a replaced XML provider), and any JAXP feature the codec does not set, so it says
 nothing about a feature name some other platform accepts or rejects. The "no network fetch" claim is
 asserted through the refusal result, not through traffic observation. It is run when the codec's
-parser setup or the guard changes, with the rest of the matrix; the recorded result of a run belongs
-in the summary of the change that ran it, and a change that was never run on the matrix must say so.
+parser setup or the guard changes, with the rest of the matrix, and a change to either that was
+never run on the matrix must say so.
 
 **What it cannot see.** It proves byte equality and password refusal for seven synthetic certificates (five signing cases and two rejection cases) on three emulators on an
 Apple Silicon host, signed through the platform's software PKCS#12 and RSA providers. It says nothing
