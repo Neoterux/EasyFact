@@ -53,8 +53,9 @@ import org.xml.sax.helpers.DefaultHandler
  * control, because it does not depend on which parser features a platform accepts. The structural
  * read then uses JAXP SAX (never StAX, absent on Android, and never XmlPull, absent from the JDK)
  * with the platform's secure-processing switch in a guarded try and a resolver that refuses every
- * external entity: defence in depth, whose behaviour on ART is proven by the device test of plan
- * 03-10. The tree it builds is bounded in depth and in element count, because the guard bounds
+ * external entity: defence in depth. The device test of plan 03-10 shows only that this setup does not
+ * throw on ART for a benign answer; a hostile payload is refused by the guard before the parser is
+ * created, so that test does not exercise the resolver or the secure-processing switch. The tree it builds is bounded in depth and in element count, because the guard bounds
  * only bytes.
  *
  * What the parsed tree cannot give is kept out of it. A parser decodes CDATA and escaped text to

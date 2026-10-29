@@ -38,7 +38,9 @@ import org.junit.runner.RunWith
  * Proves that the SRI response codec's hardening behaves on ART as it does on the JDK (research Pattern 6,
  * assumption A4): the byte-level [com.neoterux.easyfact.invoicing.soap.ResponseGuard] refuses hostile input
  * before any parser sees it, and the JAXP SAX setup (secure-processing feature in a guarded try, a refusing
- * entity resolver) neither throws on a device nor changes what a legitimate answer yields.
+ * entity resolver) neither throws on a device nor changes what a legitimate answer yields. Only the benign
+ * case reaches that setup: both hostile cases are refused by the guard first, so the refusing resolver and
+ * the secure-processing switch are not exercised by a hostile input here.
  *
  * **Not a correctness dependency (NFR-04).** The engine's behaviour is covered by JVM tests in
  * `:core:invoicing`; this test only shows that the same code is portable. It runs on the device matrix
@@ -108,7 +110,7 @@ class ParserHardeningTest {
     }
 
     @Test
-    fun anExternalEntityIsRefusedWithoutANetworkFetch() {
+    fun anExternalEntityPayloadIsRefusedByTheGuardBeforeAnyParserIsCreated() {
         val payload = (
             "<?xml version=\"1.0\"?>" +
                 "<!DOCTYPE probe [<!ENTITY external SYSTEM \"http://example.com/never-fetched.txt\">]>" +

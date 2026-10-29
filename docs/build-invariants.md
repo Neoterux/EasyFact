@@ -634,9 +634,11 @@ payload with an external entity pointing at an `example.com` address, refused th
 the parser being reached; and a UTF-16 payload, refused as not UTF-8. Each case logs one line under
 the `ParserHardening` tag with the API level and the outcome name, never content.
 
-What it proves: the byte guard (`ResponseGuard`) and the JAXP SAX setup (the secure-processing
-feature in a guarded try, a refusing entity resolver) behave on API 31, 34 and 37 as they do on the
-JDK, and the SAX setup does not throw on ART for a legitimate answer. The byte guard is the actual
+What it proves: the byte guard (`ResponseGuard`) refuses the hostile payloads on API 31, 34 and 37 as
+it does on the JDK, and the JAXP SAX setup (the secure-processing feature in a guarded try, a
+refusing entity resolver) does not throw on ART for a legitimate answer. Both hostile cases are
+refused by the guard before any parser is created, so the refusing resolver and the
+secure-processing switch are not exercised by a hostile input. The byte guard is the actual
 XXE and entity-expansion control and depends on no parser feature, so this test is a portability
 proof for the defence in depth, not a correctness dependency: the codec's behaviour is covered by
 JVM tests in `:core:invoicing`, and a green `check` does not include this test (NFR-04).
