@@ -101,6 +101,28 @@ class TextSanitizerTest {
     }
 
     @Test
+    fun everyInvisibleFormatCharacterIsAControlCharacter() {
+        // Zero-width space, LRM, RLM, the bidirectional embeddings and overrides, the isolates,
+        // the byte-order mark and the soft hyphen: all general category Cf.
+        val formatCharacters = listOf(
+            '\u200B', '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u202D', '\u202E',
+            '\u2066', '\u2067', '\u2068', '\u2069', '\uFEFF', '\u00AD',
+        )
+        for (c in formatCharacters) {
+            assertEquals(
+                "U+%04X".format(c.code),
+                Outcome.Err(SanitizerError.ControlCharacter(field)),
+                required("a${c}b"),
+            )
+        }
+    }
+
+    @Test
+    fun aFormatCharacterAtTheEdgeIsRefusedNotTrimmed() {
+        assertEquals(Outcome.Err(SanitizerError.ControlCharacter(field)), required("\uFEFFhola"))
+    }
+
+    @Test
     fun anEmojiIsAnUnsupportedCharacter() {
         assertEquals(Outcome.Err(SanitizerError.UnsupportedCharacter(field)), required("hola 😀"))
     }

@@ -32,7 +32,10 @@ sealed interface SanitizerError {
     /** The SRI element the refused text was destined for, for example `razonSocialComprador`. */
     val field: String
 
-    /** The text holds a control character that survived space folding (BEL, DEL, NEL and the like). */
+    /**
+     * The text holds a control character that survived space folding (BEL, DEL, NEL and the like), or an
+     * invisible format character (zero-width space, bidirectional override, byte-order mark and the like).
+     */
     data class ControlCharacter(override val field: String) : SanitizerError
 
     /**
@@ -62,7 +65,10 @@ sealed interface SanitizerError {
  * 2. TAB, CR, LF and every `Character.isSpaceChar` character (no-break space, U+2028, U+3000 and the
  *    other Unicode space separators) become U+0020. Folding is preferred to refusing text the user
  *    typed with a no-break space (research assumption A9).
- * 3. Any ISO control character that is left is refused as [SanitizerError.ControlCharacter].
+ * 3. Any ISO control character that is left, and any format character (general category Cf: zero-width
+ *    space, bidirectional marks and overrides, byte-order mark, soft hyphen), is refused as
+ *    [SanitizerError.ControlCharacter]. Format characters are invisible, so they would defeat the user's
+ *    own length reasoning, and a bidirectional override can reorder a name on the printed document.
  * 4. Any surrogate is refused as [SanitizerError.UnsupportedCharacter]. This covers every non-BMP code
  *    point and every lone surrogate; the owner chose to refuse emoji outright rather than pass them. A
  *    private-use character is refused the same way: it has no portable meaning, and the preview marker of an
@@ -123,7 +129,9 @@ object TextSanitizer {
             val c = if (Character.isSpaceChar(original)) ' ' else original
             // TAB, CR and LF are ISO controls but are spacing, not content, so they fold first.
             val folded = if (c == '\t' || c == '\r' || c == '\n') ' ' else c
-            if (Character.isISOControl(folded)) return Outcome.Err(SanitizerError.ControlCharacter(field))
+            if (Character.isISOControl(folded) || Character.getType(folded) == Character.FORMAT.toInt()) {
+                return Outcome.Err(SanitizerError.ControlCharacter(field))
+            }
             if (Character.isSurrogate(folded) || Character.getType(folded) == Character.PRIVATE_USE.toInt()) {
                 return Outcome.Err(SanitizerError.UnsupportedCharacter(field))
             }
