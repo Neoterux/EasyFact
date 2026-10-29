@@ -41,7 +41,6 @@ class FieldLimitsTest {
         FieldLimits.ADDITIONAL_FIELD,
         FieldLimits.ADDITIONAL_FIELD_NAME,
         FieldLimits.CREDIT_TERM_UNIT,
-        FieldLimits.RIMPE_LEGEND,
     )
 
     @Test
@@ -108,6 +107,6 @@ class FieldLimitsTest {
 
     @Test
     fun aPatternedElementHasNoLengthLimit() {
-        assertNull(FieldLimits.maxLength(FieldLimits.RIMPE_LEGEND))
+        assertNull(FieldLimits.maxLength("factura/infoTributaria/contribuyenteRimpe"))
     }
 }

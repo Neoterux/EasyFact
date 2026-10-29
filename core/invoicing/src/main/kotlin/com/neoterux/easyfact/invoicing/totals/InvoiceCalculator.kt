@@ -126,7 +126,7 @@ object InvoiceCalculator {
             if (line.unitPrice.signum() < 0) return Outcome.Err(TotalsError.NegativeUnitPrice(index))
             val rate = IvaRateTable.lookup(line.ivaRateCode)
                 ?: return Outcome.Err(TotalsError.UnknownIvaCode(index, line.ivaRateCode))
-            if (rate.percent == null) return Outcome.Err(TotalsError.IvaCodeNotComputable(index, line.ivaRateCode))
+            if (rate.kind == IvaRateKind.DIFFERENTIATED) return Outcome.Err(TotalsError.IvaCodeNotComputable(index, line.ivaRateCode))
             rates += rate
         }
 

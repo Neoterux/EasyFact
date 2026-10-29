@@ -138,6 +138,7 @@ object InvoiceMapper {
     private const val RAZON_SOCIAL = "razonSocial"
     private const val NOMBRE_COMERCIAL = "nombreComercial"
     private const val DIR_MATRIZ = "dirMatriz"
+    private const val DIR_ESTABLECIMIENTO = "dirEstablecimiento"
     private const val CONTRIBUYENTE_ESPECIAL = "contribuyenteEspecial"
     private const val RAZON_SOCIAL_COMPRADOR = "razonSocialComprador"
     private const val IDENTIFICACION_COMPRADOR = "identificacionComprador"
@@ -158,6 +159,7 @@ object InvoiceMapper {
         val issuerLegalName: String,
         val issuerTradeName: String?,
         val headOfficeAddress: String,
+        val establishmentAddress: String,
         val specialTaxpayerNumber: String?,
         val buyerLegalName: String,
         val buyerIdentification: String,
@@ -249,10 +251,13 @@ object InvoiceMapper {
         val issuerTradeName = TextSanitizer.optional(
             NOMBRE_COMERCIAL, issuer.tradeName, FieldLimits.maxLength(FieldLimits.ISSUER_TRADE_NAME),
         ).orRefuse(NOMBRE_COMERCIAL) { return Outcome.Err(it) }
-        // D-15: one establishment, so this text also becomes `dirEstablecimiento`.
         val headOfficeAddress = TextSanitizer.required(
             DIR_MATRIZ, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.HEAD_OFFICE_ADDRESS),
         ).orRefuse(DIR_MATRIZ) { return Outcome.Err(it) }
+        // D-15: one establishment, so the same address is cleaned again with `dirEstablecimiento`'s own limit.
+        val establishmentAddress = TextSanitizer.required(
+            DIR_ESTABLECIMIENTO, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.ESTABLISHMENT_ADDRESS),
+        ).orRefuse(DIR_ESTABLECIMIENTO) { return Outcome.Err(it) }
         val specialTaxpayerNumber = TextSanitizer.optional(
             CONTRIBUYENTE_ESPECIAL, issuer.specialTaxpayerNumber, FieldLimits.maxLength(FieldLimits.SPECIAL_TAXPAYER),
         ).orRefuse(CONTRIBUYENTE_ESPECIAL) { return Outcome.Err(it) }
@@ -304,6 +309,7 @@ object InvoiceMapper {
                 issuerLegalName = issuerLegalName,
                 issuerTradeName = issuerTradeName,
                 headOfficeAddress = headOfficeAddress,
+                establishmentAddress = establishmentAddress,
                 specialTaxpayerNumber = specialTaxpayerNumber,
                 buyerLegalName = buyerLegalName,
                 buyerIdentification = buyerIdentification,
@@ -378,7 +384,7 @@ object InvoiceMapper {
     private fun invoiceInfo(request: InvoiceRequest, text: CleanText, totals: InvoiceTotals): InvoiceInfo = InvoiceInfo(
         issueDate = request.issueDate,
         // D-15: a single establishment, so the establishment address is the head-office address.
-        establishmentAddress = text.headOfficeAddress,
+        establishmentAddress = text.establishmentAddress,
         specialTaxpayerNumber = text.specialTaxpayerNumber,
         accountingRequired = request.issuer.accountingRequired,
         buyerIdentificationTypeCode = request.buyer.idType.code,

@@ -44,7 +44,6 @@ internal object FieldLimits {
     const val ADDITIONAL_FIELD = "factura/infoAdicional/campoAdicional"
     const val ADDITIONAL_FIELD_NAME = "factura/infoAdicional/campoAdicional/@nombre"
     const val CREDIT_TERM_UNIT = "factura/infoFactura/pagos/pago/unidadTiempo"
-    const val RIMPE_LEGEND = "factura/infoTributaria/contribuyenteRimpe"
 
     /** Every facet by its schema path, computed once. */
     private val byPath: Map<String, FacturaWriter.Facet> by lazy { FacturaWriter.FACETS.associateBy { it.path } }
