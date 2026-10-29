@@ -345,8 +345,7 @@ object FacturaWriter {
     private val TOTAL_IMPUESTO_CODIGO_PORCENTAJE = bounded("$TAX_TOTAL/codigoPorcentaje", 4, patterns = listOf(DIGITS))
     private val DESCUENTO_ADICIONAL = decimal("$TAX_TOTAL/descuentoAdicional", SIGNED_AMOUNT)
     private val TOTAL_IMPUESTO_BASE_IMPONIBLE = decimal("$TAX_TOTAL/baseImponible")
-    // Spelt out in full: an optional element that used to be left out of the document.
-    private val TOTAL_IMPUESTO_TARIFA = decimal("factura/infoFactura/totalConImpuestos/totalImpuesto/tarifa", RATE)
+    private val TOTAL_IMPUESTO_TARIFA = decimal("$TAX_TOTAL/tarifa", RATE)
     private val TOTAL_IMPUESTO_VALOR = decimal("$TAX_TOTAL/valor")
     private val VALOR_DEVOLUCION_IVA = decimal("$TAX_TOTAL/valorDevolucionIva")
 
