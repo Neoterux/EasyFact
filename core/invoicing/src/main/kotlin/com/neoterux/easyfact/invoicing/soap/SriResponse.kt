@@ -170,6 +170,12 @@ class Authorization internal constructor(
      */
     fun comprobanteOctets(): ByteArray? = comprobanteSpan?.let { response.copyOf(it) }
 
+    /**
+     * Whether the entry carries both what the deliverable `<autorizacion>` envelope needs: the authorization
+     * number and the signed comprobante.
+     */
+    internal val isComplete: Boolean get() = number != null && comprobanteSpan != null
+
     /** Never renders the number, the date, the messages or the document. */
     override fun toString(): String = "Authorization(state=$state, messages=${messages.size})"
 }
@@ -179,8 +185,19 @@ class Authorization internal constructor(
  * rule; the list stays the primary result.
  */
 sealed interface AuthorizationSummary {
-    /** The entry at [index] is `AUTORIZADO`; the first such entry. */
+    /**
+     * The entry at [index] is `AUTORIZADO` and carries a number and a comprobante; the first such entry.
+     * An `AUTORIZADO` entry that lacks either is never reported here, see [AuthorizedIncomplete].
+     */
     data class Authorized(val index: Int) : AuthorizationSummary
+
+    /**
+     * The first `AUTORIZADO` entry, at [index], lacks the authorization number or the comprobante, and no
+     * complete authorized entry exists. A truncated or malformed answer looks like this. The deliverable
+     * envelope cannot be built from it, and the document must not be treated as authorized yet: Phase 6
+     * reconciles by asking again, as for [Undetermined]. It is not a rejection.
+     */
+    data class AuthorizedIncomplete(val index: Int) : AuthorizationSummary
 
     /** The deciding entry at [index] is not authorized. */
     data class NotAuthorized(val index: Int) : AuthorizationSummary

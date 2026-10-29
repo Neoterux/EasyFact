@@ -120,13 +120,14 @@ object SriResponseFixtures {
         state: String,
         date: String? = SAMPLE_DATE,
         number: String? = "\n$accessKey\n",
-        comprobante: String = comprobanteCdata,
+        comprobante: String? = comprobanteCdata,
         messages: String = "",
     ): String =
         "<autorizacion><estado>$state</estado>" +
             (if (number != null) "<numeroAutorizacion>$number</numeroAutorizacion>" else "") +
             (if (date != null) "<fechaAutorizacion>$date</fechaAutorizacion>" else "") +
-            "<ambiente>PRUEBAS</ambiente><comprobante>$comprobante</comprobante>" +
+            "<ambiente>PRUEBAS</ambiente>" +
+            (if (comprobante != null) "<comprobante>$comprobante</comprobante>" else "") +
             "<mensajes>$messages</mensajes></autorizacion>"
 
     private val warning60: String =
@@ -245,6 +246,20 @@ object SriResponseFixtures {
 
     /** Quirk (unverified): `numeroComprobantes` 0 and no `autorizaciones` element at all. */
     fun authorizationAbsent(): ByteArray = authorizationBody(count = "0", entries = null)
+
+    /** An `AUTORIZADO` entry with no `numeroAutorizacion`, as a truncated answer might be. */
+    fun authorizationAuthorizedWithoutNumber(): ByteArray =
+        authorizationBody(entries = entry("AUTORIZADO", number = null))
+
+    /** An `AUTORIZADO` entry with no `comprobante` element. */
+    fun authorizationAuthorizedWithoutComprobante(): ByteArray =
+        authorizationBody(entries = entry("AUTORIZADO", comprobante = null))
+
+    /** An incomplete `AUTORIZADO` entry followed by a complete one. */
+    fun authorizationIncompleteThenComplete(): ByteArray = authorizationBody(
+        count = "2",
+        entries = entry("AUTORIZADO", number = null) + entry("AUTORIZADO"),
+    )
 
     /** One entry whose `estado` is [state] as written, for the unknown and lenient-spelling cases. */
     fun authorizationWithState(state: String): ByteArray =

@@ -235,6 +235,26 @@ class SriResponseParserTest {
         assertTrue(bytes.size < ResponseGuard.MAX_RESPONSE_BYTES)
     }
 
+    @Test
+    fun anAuthorizedEntryWithoutANumberIsAuthorizedIncompleteNeverAuthorized() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithoutNumber())
+        assertEquals(AuthorizationState.Authorized, response.authorizations.single().state)
+        assertEquals(AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+    }
+
+    @Test
+    fun anAuthorizedEntryWithoutAComprobanteIsAuthorizedIncompleteNeverAuthorized() {
+        val response = authorization(SriResponseFixtures.authorizationAuthorizedWithoutComprobante())
+        assertNull(response.authorizations.single().comprobanteOctets())
+        assertEquals(AuthorizationSummary.AuthorizedIncomplete(0), response.summary)
+    }
+
+    @Test
+    fun aCompleteAuthorizedEntryWinsOverAnEarlierIncompleteOne() {
+        val response = authorization(SriResponseFixtures.authorizationIncompleteThenComplete())
+        assertEquals(AuthorizationSummary.Authorized(1), response.summary)
+    }
+
     // --- Authorization: several entries and the summary -----------------------------------
 
     @Test

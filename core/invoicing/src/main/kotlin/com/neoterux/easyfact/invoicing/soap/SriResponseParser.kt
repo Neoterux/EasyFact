@@ -221,15 +221,18 @@ object SriResponseParser {
     }
 
     /**
-     * D-39. No entry is [AuthorizationSummary.NoAuthorizations]. An authorized entry wins, the
-     * first one if there are several. Otherwise the latest by `fechaAutorizacion` decides when
+     * D-39. No entry is [AuthorizationSummary.NoAuthorizations]. A complete authorized entry (one with a
+     * number and a comprobante) wins, the first one if there are several; when every authorized entry is
+     * incomplete the first of them is [AuthorizationSummary.AuthorizedIncomplete], never `Authorized`. Otherwise the latest by `fechaAutorizacion` decides when
      * every entry has a parsed date (a tie goes to the later position), and the last entry in SRI
      * order decides when any date is missing.
      */
     private fun summarise(authorizations: List<Authorization>): AuthorizationSummary {
         if (authorizations.isEmpty()) return AuthorizationSummary.NoAuthorizations
-        val authorized = authorizations.indexOfFirst { it.state == AuthorizationState.Authorized }
+        val authorized = authorizations.indexOfFirst { it.state == AuthorizationState.Authorized && it.isComplete }
         if (authorized >= 0) return AuthorizationSummary.Authorized(authorized)
+        val incomplete = authorizations.indexOfFirst { it.state == AuthorizationState.Authorized }
+        if (incomplete >= 0) return AuthorizationSummary.AuthorizedIncomplete(incomplete)
 
         val dates = authorizations.map { it.authorizedAt?.toInstant() }
         var decisive = authorizations.lastIndex
