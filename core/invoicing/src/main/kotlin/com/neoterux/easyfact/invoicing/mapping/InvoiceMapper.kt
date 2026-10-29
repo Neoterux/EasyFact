@@ -103,8 +103,8 @@ sealed interface MappingError {
  * absent because the buyer's address travels in `infoAdicional` (D-18, research assumption A12).
  *
  * **Order of the refusals; the first failure wins.** Every document text is sanitised, with the limit read
- * from the writer's facet table, and refused if it holds the preview marker; then the provider RUC is
- * checked; then the arithmetic runs; then, for a consumidor-final buyer, the identification and the cap;
+ * from the writer's facet table, and refused if resolved pattern output holds the preview marker; then the
+ * provider RUC is checked; then the arithmetic runs; then, for a consumidor-final buyer, the identification and the cap;
  * then `infoAdicional` is assembled and counted. All of that runs before [FacturaWriter], so the user sees a
  * specific engine refusal, and the writer's own facets remain the backstop behind it.
  *
@@ -238,8 +238,9 @@ object InvoiceMapper {
     }
 
     /**
-     * Cleans every document text with the limit of its own facet (D-34), and refuses any that holds the
-     * preview marker (D-37). The first refusal wins, in document order.
+     * Cleans every document text with the limit of its own facet (D-34), and refuses the resolved pattern
+     * output (line codes and descriptions, template fields) that holds the preview marker (D-37). The first
+     * refusal wins, in document order.
      */
     private fun sanitise(request: InvoiceRequest): Outcome<CleanText, MappingError> {
         val issuer = request.issuer
@@ -281,10 +282,10 @@ object InvoiceMapper {
         val lineCodes = ArrayList<String?>(request.lines.size)
         val lineDescriptions = ArrayList<String>(request.lines.size)
         for (line in request.lines) {
-            lineCodes += cleanOptional(
+            lineCodes += cleanResolvedOptional(
                 CODIGO_PRINCIPAL, line.code, FieldLimits.maxLength(FieldLimits.LINE_CODE),
             ) { return Outcome.Err(it) }
-            lineDescriptions += cleanRequired(
+            lineDescriptions += cleanResolvedRequired(
                 DESCRIPCION, line.description, FieldLimits.maxLength(FieldLimits.LINE_DESCRIPTION),
             ) { return Outcome.Err(it) }
         }
@@ -294,10 +295,10 @@ object InvoiceMapper {
             // Named by position in the request's template fields (from zero), so the screen can point at the entry.
             val nameField = "$CAMPO_ADICIONAL_NOMBRE[$index]"
             val valueField = "$CAMPO_ADICIONAL[$index]"
-            val name = cleanRequired(
+            val name = cleanResolvedRequired(
                 nameField, field.name, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD_NAME),
             ) { return Outcome.Err(it) }
-            val value = cleanRequired(
+            val value = cleanResolvedRequired(
                 valueField, field.value, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
             ) { return Outcome.Err(it) }
             templateFields += AdditionalField(name, value)
@@ -330,25 +331,18 @@ object InvoiceMapper {
     }
 
     /**
-     * Sanitises a required text, or hands the refusal to [onRefused], which returns from the caller. The raw
-     * text is checked for the preview marker first, because the sanitiser refuses every private-use code point
-     * and would otherwise report the marker as "an unsupported character": the marker means a preview string
-     * reached the commit path, a programming fault and never user input, so it is refused as
-     * [MappingError.PreviewMarkerInDocument] for [field] (D-37).
+     * Sanitises a required text, or hands the refusal to [onRefused], which returns from the caller. Every
+     * private-use code point, the preview marker included, is refused by the sanitiser as an unsupported
+     * character, which is right for text a person typed or stored: it can be removed and retyped.
      */
     private inline fun cleanRequired(
         field: String,
         raw: String,
         maxLength: Int?,
         onRefused: (MappingError) -> Nothing,
-    ): String {
-        if (raw.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
-            onRefused(MappingError.PreviewMarkerInDocument(field))
-        }
-        return when (val result = TextSanitizer.required(field, raw, maxLength)) {
-            is Outcome.Err -> onRefused(MappingError.Text(result.error))
-            is Outcome.Ok -> result.value
-        }
+    ): String = when (val result = TextSanitizer.required(field, raw, maxLength)) {
+        is Outcome.Err -> onRefused(MappingError.Text(result.error))
+        is Outcome.Ok -> result.value
     }
 
     /** As [cleanRequired], for a text that may be absent: `null` stays `null` and a blank text becomes `null`. */
@@ -357,14 +351,41 @@ object InvoiceMapper {
         raw: String?,
         maxLength: Int?,
         onRefused: (MappingError) -> Nothing,
+    ): String? = when (val result = TextSanitizer.optional(field, raw, maxLength)) {
+        is Outcome.Err -> onRefused(MappingError.Text(result.error))
+        is Outcome.Ok -> result.value
+    }
+
+    /**
+     * As [cleanRequired], for a text that holds resolved pattern output (a line code or description, a template
+     * field name or value). The raw text is checked for the preview marker first, because the sanitiser would
+     * otherwise report it as "an unsupported character": in these fields the marker means a preview string
+     * reached the commit path, a programming fault and never user input, so it is refused as
+     * [MappingError.PreviewMarkerInDocument] for [field] (D-37).
+     */
+    private inline fun cleanResolvedRequired(
+        field: String,
+        raw: String,
+        maxLength: Int?,
+        onRefused: (MappingError) -> Nothing,
+    ): String {
+        if (raw.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
+            onRefused(MappingError.PreviewMarkerInDocument(field))
+        }
+        return cleanRequired(field, raw, maxLength, onRefused)
+    }
+
+    /** As [cleanResolvedRequired], for a text that may be absent. */
+    private inline fun cleanResolvedOptional(
+        field: String,
+        raw: String?,
+        maxLength: Int?,
+        onRefused: (MappingError) -> Nothing,
     ): String? {
         if (raw != null && raw.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
             onRefused(MappingError.PreviewMarkerInDocument(field))
         }
-        return when (val result = TextSanitizer.optional(field, raw, maxLength)) {
-            is Outcome.Err -> onRefused(MappingError.Text(result.error))
-            is Outcome.Ok -> result.value
-        }
+        return cleanOptional(field, raw, maxLength, onRefused)
     }
 
     /** The trimmed provider RUC, `null` when it is off, or [MappingError.ProviderRucMalformed] (D-19). */

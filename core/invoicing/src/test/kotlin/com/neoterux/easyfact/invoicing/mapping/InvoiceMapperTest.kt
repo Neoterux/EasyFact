@@ -518,15 +518,9 @@ class InvoiceMapperTest {
     }
 
     @Test
-    fun theMarkerIsRefusedInEveryTextFieldClassWithItsOwnFieldName() {
+    fun theMarkerIsRefusedInResolvedPatternOutputWithItsOwnFieldName() {
         val withMarker = "Texto $marker"
         val variants = listOf(
-            "issuer legal name" to ("razonSocial" to MapperFixtures.request(issuer = MapperFixtures.issuer(legalName = withMarker))),
-            "trade name" to ("nombreComercial" to MapperFixtures.request(issuer = MapperFixtures.issuer(tradeName = withMarker))),
-            "buyer legal name" to ("razonSocialComprador" to MapperFixtures.request(buyer = MapperFixtures.buyer(legalName = withMarker))),
-            "billing email" to ("Email" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = withMarker))),
-            "buyer address" to ("Dirección" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = withMarker))),
-            "buyer phone" to ("Teléfono" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = withMarker))),
             "line code" to ("codigoPrincipal" to MapperFixtures.request(lines = listOf(MapperFixtures.line(code = withMarker)))),
             "template field name" to ("nombre[0]" to MapperFixtures.request(templateFields = listOf(TemplateField(withMarker, "valor")))),
             "template field value" to ("campoAdicional[0]" to MapperFixtures.request(templateFields = listOf(TemplateField("Campo", withMarker)))),
@@ -535,6 +529,27 @@ class InvoiceMapperTest {
             assertEquals(
                 variant,
                 MappingError.PreviewMarkerInDocument(expected.first),
+                MapperFixtures.refusal(variant, expected.second),
+            )
+        }
+    }
+
+    @Test
+    fun aPrivateUseCharacterInTypedProfileOrBuyerTextIsAnUnsupportedCharacterNotAnEngineBug() {
+        // These fields never hold resolved pattern output, so even the marker's code point is text to retype.
+        val withMarker = "Texto $marker"
+        val variants = listOf(
+            "issuer legal name" to ("razonSocial" to MapperFixtures.request(issuer = MapperFixtures.issuer(legalName = withMarker))),
+            "trade name" to ("nombreComercial" to MapperFixtures.request(issuer = MapperFixtures.issuer(tradeName = withMarker))),
+            "buyer legal name" to ("razonSocialComprador" to MapperFixtures.request(buyer = MapperFixtures.buyer(legalName = withMarker))),
+            "billing email" to ("Email" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = withMarker))),
+            "buyer address" to ("Dirección" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = withMarker))),
+            "buyer phone" to ("Teléfono" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = withMarker))),
+        )
+        for ((variant, expected) in variants) {
+            assertEquals(
+                variant,
+                MappingError.Text(SanitizerError.UnsupportedCharacter(expected.first)),
                 MapperFixtures.refusal(variant, expected.second),
             )
         }
