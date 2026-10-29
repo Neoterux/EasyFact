@@ -92,8 +92,9 @@ class RawResponse private constructor(private val bytes: ByteArray) {
  * One `mensaje` of a response.
  *
  * Severity is [type] (`ERROR`, `ADVERTENCIA`, `INFORMATIVO`); an `ADVERTENCIA` is a warning and
- * never a failure (SRI-08, D-40). [toString] renders only [identifier], which is a protocol code;
- * [additionalInformation] can echo content of the document.
+ * never a failure (SRI-08, D-40). [toString] renders [identifier] only when it looks like a protocol
+ * code (a short run of ASCII digits), because the parser keeps whatever text the answer holds there;
+ * [message] and [additionalInformation] can echo content of the document and are never rendered.
  *
  * @property identifier the SRI code, or an empty string when the message carries none; never invented
  * @property message the text of the message, trimmed
@@ -106,7 +107,15 @@ data class SriMessage(
     val additionalInformation: String?,
     val type: String?,
 ) {
-    override fun toString(): String = "SriMessage(identifier=$identifier)"
+    override fun toString(): String = "SriMessage(identifier=${identifier.takeIf(::looksLikeProtocolCode) ?: REDACTED})"
+
+    private companion object {
+        const val REDACTED = "redacted"
+        const val MAX_CODE_LENGTH = 6
+
+        fun looksLikeProtocolCode(text: String): Boolean =
+            text.length <= MAX_CODE_LENGTH && text.all { it in '0'..'9' }
+    }
 }
 
 /** The `estado` of a reception answer, matched leniently (D-40). */

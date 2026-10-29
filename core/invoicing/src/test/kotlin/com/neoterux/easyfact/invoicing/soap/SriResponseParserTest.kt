@@ -612,6 +612,19 @@ class SriResponseParserTest {
     }
 
     @Test
+    fun aMessageRendersItsIdentifierOnlyWhenItLooksLikeAProtocolCode() {
+        fun rendered(identifier: String) = SriMessage(identifier, "text", null, "ERROR").toString()
+
+        assertEquals("SriMessage(identifier=35)", rendered("35"))
+        assertEquals("SriMessage(identifier=)", rendered(""))
+        for (hostile in listOf("ZZsecretZZ", "35 extra", "1234567", "\u0663\u0665", "35\n")) {
+            val rendering = rendered(hostile)
+            assertFalse("a rendering leaked the identifier text: $rendering", rendering.contains(hostile.trim()))
+            assertEquals("SriMessage(identifier=redacted)", rendering)
+        }
+    }
+
+    @Test
     fun theRawWrapperKeepsAPrivateCopy() {
         val bytes = SriResponseFixtures.receptionReceived()
         val original = bytes.copyOf()
