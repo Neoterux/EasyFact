@@ -162,12 +162,30 @@ that a one-cent discrepancy is rejected was not found in the Ficha and has
 been removed. Compute exactly with `BigDecimal` and HALF_UP; do not rely on an
 assumed tolerance in either direction.
 
+**The engine's rule (D-21, D-23).** `InvoiceCalculator` rounds `cantidad` and
+`precioUnitario` to six decimals first, then takes the line base as
+`round2(q x p)` from those rounded values, so the SRI's recomputation from what
+it receives always agrees. Each line's IVA is `round2(base x rate)`. Each group
+`totalImpuesto/valor` is `round2(sum of the bases at that code x rate)`,
+computed independently of the per-line values, so the sum of the per-line IVA
+and the group value may differ by a cent, as they do in the SRI's own free
+invoicer (Ficha section 9.16). `importeTotal` is the sum of the bases plus the
+group IVA values plus `propina`, which is always `0.00`. Bases, group bases and
+`importeTotal` reconcile exactly; only the per-line sum against the group IVA is
+allowed to differ. Every rounding is HALF_UP.
+
 ### Tax codes
 
 **[Ficha v2.34]** `codigo` `2` is IVA. Current `codigoPorcentaje` values
 include **0% = code `0`** and **15% = code `4`**. Historical codes remain
 valid for past periods. Read the catalogue from the spec rather than
 hardcoding a rate.
+
+The engine's `IvaRateTable` transcribes Ficha Table 17 (p.30) as a plain
+code-to-rate catalogue with **no effective dates** (owner decision 2026-10-28).
+Historical codes stay listed. Code `8` (IVA diferenciado) has no fixed rate, so
+the calculator refuses it rather than guessing, and any code not in the table is
+refused as unknown.
 
 Professional health services are generally zero-rated, which makes the 0% code
 the sensible default for this project's users, but it is a configurable
@@ -571,7 +589,10 @@ that answered it.
   for one still being processed? Does error 43 precede 45?
 - [ ] Which amount mismatch yields error 52, is there a published rounding
   tolerance behind it, and does the SRI expect IVA rounded per line or on the
-  group base?
+  group base? The engine applies the free-invoicer rule (D-21: per-line
+  `round2`, group IVA computed independently from the summed bases); the
+  owner-run `celcer` session (register item 7) is what confirms it. This stays
+  open until that session has been run.
 - [ ] Does an environment mismatch between the access key's digit and the
   document's `ambiente` yield error 58?
 - [ ] What is the full set of authorization state strings the service returns?
