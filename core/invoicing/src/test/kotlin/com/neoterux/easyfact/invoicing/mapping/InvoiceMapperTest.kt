@@ -545,6 +545,28 @@ class InvoiceMapperTest {
             "billing email" to ("Email" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = withMarker))),
             "buyer address" to ("Dirección" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = withMarker))),
             "buyer phone" to ("Teléfono" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = withMarker))),
+            // `dirEstablecimiento` is cleaned from the same text right after `dirMatriz`, so while the two limits
+            // agree a bad character is always reported as `dirMatriz`; it has no variant of its own here.
+            "head office address" to (
+                "dirMatriz" to MapperFixtures.request(
+                    issuer = MapperFixtures.issuer().copy(headOfficeAddress = withMarker),
+                )
+                ),
+            "special taxpayer number" to (
+                "contribuyenteEspecial" to MapperFixtures.request(
+                    issuer = MapperFixtures.issuer(specialTaxpayerNumber = withMarker),
+                )
+                ),
+            "buyer identification" to (
+                "identificacionComprador" to MapperFixtures.request(
+                    buyer = MapperFixtures.buyer(identification = withMarker),
+                )
+                ),
+            "credit term unit" to (
+                "unidadTiempo" to MapperFixtures.request(
+                    payment = PaymentTerms(PaymentMethod.CREDIT_CARD, CreditTerm(BigDecimal("30"), withMarker)),
+                )
+                ),
         )
         for ((variant, expected) in variants) {
             assertEquals(

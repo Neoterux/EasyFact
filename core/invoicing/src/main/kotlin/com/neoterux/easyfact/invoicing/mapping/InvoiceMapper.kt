@@ -257,6 +257,8 @@ object InvoiceMapper {
             DIR_MATRIZ, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.HEAD_OFFICE_ADDRESS),
         ) { return Outcome.Err(it) }
         // D-15: one establishment, so the same address is cleaned again with `dirEstablecimiento`'s own limit.
+        // While the two limits agree, any refusal here was already reported as `dirMatriz` by the clean above;
+        // this site can only report a text that is fine at one limit and not at the other.
         val establishmentAddress = cleanRequired(
             DIR_ESTABLECIMIENTO, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.ESTABLISHMENT_ADDRESS),
         ) { return Outcome.Err(it) }
