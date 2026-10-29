@@ -239,6 +239,17 @@ class ResponseGuardTest {
         )
     }
 
+    @Test
+    fun aDeclarationThatPushesItsEncodingPastTheScanWindowIsRefused() {
+        val padded = "<?xml version=\"1.0\"" + " ".repeat(1500) + " encoding=\"ISO-8859-1\"?>"
+        assertEquals(MalformedReason.NOT_UTF8, ResponseGuard.check(utf8(benign(padded))))
+    }
+
+    @Test
+    fun aDeclarationThatIsNeverClosedIsRefused() {
+        assertEquals(MalformedReason.NOT_UTF8, ResponseGuard.check(utf8("<?xml version=\"1.0\" <a/>")))
+    }
+
     // --- DOCTYPE / ENTITY_DECLARATION ----------------------------------------------------------
 
     @Test

@@ -158,8 +158,9 @@ object ResponseGuard {
         if (afterName >= bytes.size || !isXmlWhitespace(bytes[afterName])) return false
         val limit = minOf(bytes.size, start + DECLARATION_SCAN_LIMIT)
         val end = indexOf(bytes, DECLARATION_END, afterName, limit)
-        // An unterminated declaration is the parser's to refuse as not well-formed.
-        if (end < 0) return false
+        // A real declaration is a few dozen bytes. One not closed inside the window is refused
+        // here rather than skipped, or padding could push `encoding=` past what is inspected.
+        if (end < 0) return true
         val declaration = String(bytes, afterName, end - afterName, Charsets.ISO_8859_1)
         val declared = ENCODING_PSEUDO_ATTRIBUTE.find(declaration)?.groupValues?.get(2) ?: return false
         return declared.uppercase(Locale.ROOT) != UTF8_NAME
