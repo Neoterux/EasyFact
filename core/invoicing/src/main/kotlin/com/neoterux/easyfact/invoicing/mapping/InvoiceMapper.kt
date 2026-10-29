@@ -267,15 +267,16 @@ object InvoiceMapper {
         val buyerIdentification = TextSanitizer.required(
             IDENTIFICACION_COMPRADOR, buyer.identification, FieldLimits.maxLength(FieldLimits.BUYER_IDENTIFICATION),
         ).orRefuse(IDENTIFICACION_COMPRADOR) { return Outcome.Err(it) }
+        // The buyer's extras share one facet (and so one limit) but are named apart, so a refusal says which is wrong.
         val billingEmail = TextSanitizer.required(
-            CAMPO_ADICIONAL, buyer.billingEmail, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(CAMPO_ADICIONAL) { return Outcome.Err(it) }
+            EMAIL_FIELD, buyer.billingEmail, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
+        ).orRefuse(EMAIL_FIELD) { return Outcome.Err(it) }
         val buyerAddress = TextSanitizer.optional(
-            CAMPO_ADICIONAL, buyer.address, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(CAMPO_ADICIONAL) { return Outcome.Err(it) }
+            ADDRESS_FIELD, buyer.address, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
+        ).orRefuse(ADDRESS_FIELD) { return Outcome.Err(it) }
         val buyerPhone = TextSanitizer.optional(
-            CAMPO_ADICIONAL, buyer.phone, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(CAMPO_ADICIONAL) { return Outcome.Err(it) }
+            PHONE_FIELD, buyer.phone, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
+        ).orRefuse(PHONE_FIELD) { return Outcome.Err(it) }
 
         val lineCodes = ArrayList<String?>(request.lines.size)
         val lineDescriptions = ArrayList<String>(request.lines.size)
@@ -289,13 +290,16 @@ object InvoiceMapper {
         }
 
         val templateFields = ArrayList<AdditionalField>(request.templateFields.size)
-        for (field in request.templateFields) {
+        for ((index, field) in request.templateFields.withIndex()) {
+            // Named by position in the request's template fields (from zero), so the screen can point at the entry.
+            val nameField = "$CAMPO_ADICIONAL_NOMBRE[$index]"
+            val valueField = "$CAMPO_ADICIONAL[$index]"
             val name = TextSanitizer.required(
-                CAMPO_ADICIONAL_NOMBRE, field.name, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD_NAME),
-            ).orRefuse(CAMPO_ADICIONAL_NOMBRE) { return Outcome.Err(it) }
+                nameField, field.name, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD_NAME),
+            ).orRefuse(nameField) { return Outcome.Err(it) }
             val value = TextSanitizer.required(
-                CAMPO_ADICIONAL, field.value, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-            ).orRefuse(CAMPO_ADICIONAL) { return Outcome.Err(it) }
+                valueField, field.value, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
+            ).orRefuse(valueField) { return Outcome.Err(it) }
             templateFields += AdditionalField(name, value)
         }
 

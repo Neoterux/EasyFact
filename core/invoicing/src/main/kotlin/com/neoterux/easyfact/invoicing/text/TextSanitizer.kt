@@ -29,7 +29,10 @@ import java.text.Normalizer
  */
 sealed interface SanitizerError {
 
-    /** The SRI element the refused text was destined for, for example `razonSocialComprador`. */
+    /**
+     * What the refused text was destined for: an SRI element such as `razonSocialComprador`, or, where one
+     * element holds several texts, a name that tells them apart (`Email`, `nombre[2]`).
+     */
     val field: String
 
     /**

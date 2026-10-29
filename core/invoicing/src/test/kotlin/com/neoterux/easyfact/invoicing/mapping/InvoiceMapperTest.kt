@@ -511,17 +511,44 @@ class InvoiceMapperTest {
             "issuer legal name" to ("razonSocial" to MapperFixtures.request(issuer = MapperFixtures.issuer(legalName = withMarker))),
             "trade name" to ("nombreComercial" to MapperFixtures.request(issuer = MapperFixtures.issuer(tradeName = withMarker))),
             "buyer legal name" to ("razonSocialComprador" to MapperFixtures.request(buyer = MapperFixtures.buyer(legalName = withMarker))),
-            "billing email" to ("campoAdicional" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = withMarker))),
-            "buyer address" to ("campoAdicional" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = withMarker))),
-            "buyer phone" to ("campoAdicional" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = withMarker))),
+            "billing email" to ("Email" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = withMarker))),
+            "buyer address" to ("Dirección" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = withMarker))),
+            "buyer phone" to ("Teléfono" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = withMarker))),
             "line code" to ("codigoPrincipal" to MapperFixtures.request(lines = listOf(MapperFixtures.line(code = withMarker)))),
-            "template field name" to ("nombre" to MapperFixtures.request(templateFields = listOf(TemplateField(withMarker, "valor")))),
-            "template field value" to ("campoAdicional" to MapperFixtures.request(templateFields = listOf(TemplateField("Campo", withMarker)))),
+            "template field name" to ("nombre[0]" to MapperFixtures.request(templateFields = listOf(TemplateField(withMarker, "valor")))),
+            "template field value" to ("campoAdicional[0]" to MapperFixtures.request(templateFields = listOf(TemplateField("Campo", withMarker)))),
         )
         for ((variant, expected) in variants) {
             assertEquals(
                 variant,
                 MappingError.Text(SanitizerError.UnsupportedCharacter(expected.first)),
+                MapperFixtures.refusal(variant, expected.second),
+            )
+        }
+    }
+
+    @Test
+    fun aRefusalNamesWhichBuyerExtraOrTemplateFieldWasWrong() {
+        val tooLong = "x".repeat(301)
+        val variants = listOf(
+            "billing email" to ("Email" to MapperFixtures.request(buyer = MapperFixtures.buyer(billingEmail = tooLong))),
+            "buyer address" to ("Dirección" to MapperFixtures.request(buyer = MapperFixtures.buyer(address = tooLong))),
+            "buyer phone" to ("Teléfono" to MapperFixtures.request(buyer = MapperFixtures.buyer(phone = tooLong))),
+            "second template name" to (
+                "nombre[1]" to MapperFixtures.request(
+                    templateFields = listOf(TemplateField("Uno", "a"), TemplateField(tooLong, "b")),
+                )
+                ),
+            "third template value" to (
+                "campoAdicional[2]" to MapperFixtures.request(
+                    templateFields = listOf(TemplateField("Uno", "a"), TemplateField("Dos", "b"), TemplateField("Tres", tooLong)),
+                )
+                ),
+        )
+        for ((variant, expected) in variants) {
+            assertEquals(
+                variant,
+                MappingError.Text(SanitizerError.TooLong(expected.first, 300, 301)),
                 MapperFixtures.refusal(variant, expected.second),
             )
         }
