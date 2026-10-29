@@ -41,10 +41,18 @@ data class IvaRate(val code: String, val percent: BigDecimal?, val kind: IvaRate
  * The IVA `codigoPorcentaje` catalogue (D-29): a plain code-to-rate table transcribed from Ficha
  * v2.34 Table 17 (p.30).
  *
- * **There are no effective dates.** D-29 asked for them, and the owner decided on 2026-10-28 that the
- * table carries none: the Ficha's table gives code and percentage only, and the app applies the rate
- * the code names. That decision supersedes D-29's "effective dates" clause, so this table has no date
- * fields of any kind. A rate change is an app update with a test, never a user edit.
+ * **There are no effective dates.** D-29 asked for them, and the owner confirmed on 2026-10-28 that
+ * there are none to model: the Ficha's table gives code and percentage only, and the app applies the
+ * rate the code names. That decision supersedes D-29's "effective dates" clause, so this table has no
+ * date fields of any kind.
+ *
+ * Historical codes stay listed (the 12% and 14% rows, for instance) because a document for a past
+ * period may still carry them; a row is never removed because its rate stopped being current. A rate
+ * change ships as an app update with a test, never as a user edit.
+ *
+ * Code 8 (IVA diferenciado) has no fixed rate, so its [IvaRate.percent] is `null` and
+ * [InvoiceCalculator] refuses a line that uses it (`IvaCodeNotComputable`) instead of guessing.
+ * Codes 6 and 7 carry a zero percentage: the full base is declared with a zero rate and a zero amount.
  *
  * Percentages are the percentage itself (15 means 15%), constructed from strings.
  */
