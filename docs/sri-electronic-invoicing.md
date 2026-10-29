@@ -103,6 +103,27 @@ After a rejection the SRI requires resubmission with the *same* access key and
 sequential; if the numeric code depended on content, correcting the document
 would change the key and make lawful resubmission impossible.
 
+**The derivation `KeyDerivation.numericCode` uses.**
+
+1. Build the ASCII material `ruc|estab+ptoEmi|sequential9|ddMMyyyy`: the issuer RUC, the
+   establishment code immediately followed by the emission-point code, the sequential zero-padded to
+   nine digits, and the issue date as `ddMMyyyy`, joined by `|`.
+2. Hash it with SHA-256.
+3. Read the whole 32-byte digest as an unsigned big integer, reduce it modulo 10^8
+   (`mod(10^8)`), and left-pad the result with zeros to eight digits.
+
+There is no salt, and no document content (amounts, lines, descriptions, customer) is an input:
+`KeyDerivation.accessKey` accepts only the RUC, the environment, the series, the sequential and the
+issue date. The key is persisted when the sequential is allocated and is **never recomputed** for an
+existing row (D-11); the derivation is a convenience for that one moment, not a lookup.
+
+Golden vector, all values synthetic, verified outside the JVM (`shasum -a 256`, then
+`int(digest, 16) % 10**8` in Python) before it was pinned in `KeyDerivationTest`:
+
+| Material | SHA-256 | Numeric code |
+| --- | --- | --- |
+| `9999999999001\|001003\|000990064\|27102026` | `e41d116a5d51a2a0705cdba42ca760d846813379c29b1b84e745eeba49efecc4` | `58844868` |
+
 ## 5. XML structure (factura)
 
 **[Ficha v2.34]** Schema version **1.1.0** is appropriate for a plain invoice.
