@@ -17,6 +17,7 @@
 
 package com.neoterux.easyfact.invoicing.soap
 
+import java.nio.Buffer
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
@@ -139,9 +140,9 @@ object ResponseGuard {
             val result = decoder.decode(input, output, true)
             if (result.isError) return false
             if (result.isUnderflow) break
-            output.clear()
+            clear(output)
         }
-        output.clear()
+        clear(output)
         return !decoder.flush(output).isError
     }
 
@@ -162,6 +163,15 @@ object ResponseGuard {
         val declaration = String(bytes, afterName, end - afterName, Charsets.ISO_8859_1)
         val declared = ENCODING_PSEUDO_ATTRIBUTE.find(declaration)?.groupValues?.get(2) ?: return false
         return declared.uppercase(Locale.ROOT) != UTF8_NAME
+    }
+
+    /**
+     * Clears through [Buffer], whose `clear()` returns `Buffer`. Called on a `CharBuffer` the JDK 9+
+     * override returns `CharBuffer`, a method Android API 31 does not have, and Animal Sniffer
+     * rightly refuses the resulting reference.
+     */
+    private fun clear(buffer: Buffer) {
+        buffer.clear()
     }
 
     private fun isXmlWhitespace(byte: Byte): Boolean =
