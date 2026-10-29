@@ -714,8 +714,9 @@ total discount, whose schema type states no lower bound) is written.
 
 **What it enforces.** Every `CatalogueEntry` of `:core:invoicing` (every SRI code from the technical
 sheet, the two unknown-message entries and every engine refusal and warning) has a non-blank
-`<string>` in `app/src/main/res/values/strings.xml`, named by the entry's `resourceName`. The file
-must exist at the module-relative path, hold at least one string per entry plus `app_name`, keep
+`<string>` in `app/src/main/res/values/strings.xml`, named by the entry's `resourceName`, and no
+`catalogue_`-prefixed string is left without an entry (a key stranded by a rename or removal). The file
+must exist at the module-relative path, hold exactly one string per entry plus `app_name`, keep
 `app_name` unchanged, and keep the two format-sensitive entries well-formed: the unrecognised-token
 warning carries its token as the single `%1$s` argument, and the sequence-assigned note is a
 statement with no format argument and no question. The three zero-value warnings must ask a question,
@@ -732,15 +733,16 @@ the JDK parser anyway. The entry list is read from `CatalogueEntry.entries`, so 
 test until its string is added; completeness on the `:core:invoicing` side is a compile error, because
 the error-to-entry mappings are `when` expressions with no `else`.
 
-**Failing fixtures.** The same file carries synthetic documents the checker must reject: one with a
-missing key and a blank key (reported in input order), an empty element, and an empty `<resources/>`.
+**Failing fixtures.** The same file carries synthetic documents the checkers must reject: one with a
+missing key and a blank key (reported in input order), an empty element, and an empty `<resources/>`;
+and one holding stale `catalogue_` keys beside an unprefixed one, for `unclaimedCatalogueKeys`.
 The working directory is asserted too: a run that does not start in the `:app` module directory fails
 with the expected path instead of passing on an absent file.
 
 **What it cannot see.** Wording quality and the "usted" register: whether a sentence is plain, correct
 Spanish and consistent with the entry's next action is review-only. It cannot see strings for UI that
-is not in the catalogue yet, a string that exists but is never shown (an unreferenced string is only a
-lint warning), AAPT escaping mistakes (those fail `assembleDebug`, not this test), or a locale other
+is not in the catalogue yet, a string outside the `catalogue_` prefix that exists but is never shown (an
+unreferenced string is only a lint warning), AAPT escaping mistakes (those fail `assembleDebug`, not this test), or a locale other
 than the default; the default locale is Spanish (Ecuador) and no other is provided.
 
 ## Device-to-device transfer is UNVERIFIED

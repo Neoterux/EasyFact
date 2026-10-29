@@ -29,7 +29,8 @@ import org.w3c.dom.Element
 
 /**
  * Completeness gate for the Spanish catalogue strings (SC5, D-03, D-08): every [CatalogueEntry] must have a
- * non-blank `<string>` named by its `resourceName` in `src/main/res/values/strings.xml`.
+ * non-blank `<string>` named by its `resourceName` in `src/main/res/values/strings.xml`, and no
+ * `catalogue_`-prefixed string may be left without an entry (a stale key after a rename).
  *
  * A plain JVM test on purpose. Robolectric would be a new dependency needing the owner's approval, and it
  * would run the JDK's XML parser anyway; the file is read from disk with JAXP, which exists only in this
@@ -57,10 +58,18 @@ class CatalogueStringsTest {
     fun theRealStringsFileExistsAndHoldsAStringPerEntryPlusTheAppName() {
         val strings = stringsOf(realBytes())
 
-        assertTrue(
-            "expected at least ${CatalogueEntry.entries.size + 1} string elements, found ${strings.size}",
-            strings.size >= CatalogueEntry.entries.size + 1,
+        assertEquals(
+            "expected exactly one string per entry plus app_name, so a surplus string is a stale key",
+            CatalogueEntry.entries.size + 1,
+            strings.size,
         )
+    }
+
+    @Test
+    fun noCatalogueStringIsLeftBehindByARenamedOrRemovedEntry() {
+        val named = CatalogueEntry.entries.map { it.resourceName }
+
+        assertEquals(emptyList<String>(), unclaimedCatalogueKeys(named, realBytes()))
     }
 
     @Test
@@ -128,6 +137,24 @@ class CatalogueStringsTest {
     }
 
     @Test
+    fun theUnclaimedKeyCheckerReportsOnlyCataloguePrefixedKeysNoEntryNames() {
+        val synthetic = """
+            <resources>
+                <string name="app_name">x</string>
+                <string name="catalogue_kept">x</string>
+                <string name="catalogue_stale">x</string>
+                <string name="catalogue_also_stale">x</string>
+            </resources>
+        """.trimIndent().toByteArray(Charsets.UTF_8)
+
+        assertEquals(
+            listOf("catalogue_stale", "catalogue_also_stale"),
+            unclaimedCatalogueKeys(listOf("catalogue_kept", "catalogue_missing"), synthetic),
+        )
+        assertEquals(emptyList<String>(), unclaimedCatalogueKeys(emptyList(), "<resources/>".toByteArray(Charsets.UTF_8)))
+    }
+
+    @Test
     fun theCheckerReportsAnEmptyElementAsBlank() {
         val synthetic = """<resources><string name="a"/><string name="b">ok</string></resources>"""
             .toByteArray(Charsets.UTF_8)
@@ -160,6 +187,15 @@ class CatalogueStringsTest {
 internal fun missingOrBlank(required: Collection<String>, stringsXml: ByteArray): List<String> {
     val present = stringsOf(stringsXml)
     return required.filter { present[it].isNullOrBlank() }
+}
+
+/**
+ * The `catalogue_`-prefixed names in [stringsXml] that no name in [claimed] matches, in file order: a string a
+ * renamed or removed entry left behind. Strings outside the prefix, such as `app_name`, are not judged.
+ */
+internal fun unclaimedCatalogueKeys(claimed: Collection<String>, stringsXml: ByteArray): List<String> {
+    val names = claimed.toSet()
+    return stringsOf(stringsXml).keys.filter { it.startsWith("catalogue_") && it !in names }
 }
 
 /** Every `<string>` of [stringsXml] by name, with the text exactly as the parser decodes it. */
