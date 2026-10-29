@@ -482,12 +482,22 @@ class InvoiceMapperTest {
     // --- sanitiser, preview marker, optional text (D-34, D-37) ---------------------------------------------
 
     @Test
-    fun aDescriptionWithTheMarkerIsRefusedAsAnUnsupportedCharacter() {
+    fun aDescriptionWithTheMarkerIsRefusedAsAPreviewMarkerInTheDocument() {
         val request = MapperFixtures.request(lines = listOf(MapperFixtures.line(description = "Servicio $marker de prueba")))
 
         assertEquals(
-            MappingError.Text(SanitizerError.UnsupportedCharacter("descripcion")),
+            MappingError.PreviewMarkerInDocument("descripcion"),
             MapperFixtures.refusal("marker in description", request),
+        )
+    }
+
+    @Test
+    fun anotherPrivateUseCharacterIsStillAnUnsupportedCharacterNotTheMarker() {
+        val request = MapperFixtures.request(lines = listOf(MapperFixtures.line(description = "Servicio \uE001 de prueba")))
+
+        assertEquals(
+            MappingError.Text(SanitizerError.UnsupportedCharacter("descripcion")),
+            MapperFixtures.refusal("other private-use character", request),
         )
     }
 
@@ -521,7 +531,7 @@ class InvoiceMapperTest {
         for ((variant, expected) in variants) {
             assertEquals(
                 variant,
-                MappingError.Text(SanitizerError.UnsupportedCharacter(expected.first)),
+                MappingError.PreviewMarkerInDocument(expected.first),
                 MapperFixtures.refusal(variant, expected.second),
             )
         }

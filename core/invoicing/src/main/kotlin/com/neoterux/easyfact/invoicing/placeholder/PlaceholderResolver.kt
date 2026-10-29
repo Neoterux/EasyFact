@@ -95,7 +95,8 @@ object PlaceholderResolver {
      * person can type or paste in ordinary text (the horizontal ellipsis that phone keyboards substitute for
      * "..." collided with it), and [com.neoterux.easyfact.invoicing.text.TextSanitizer] refuses every
      * private-use character, so user data can never carry it. A screen that shows a preview replaces the marker
-     * with its own visible placeholder.
+     * with its own visible placeholder. The mapper looks for the marker before the sanitiser judges a text, so a
+     * preview that leaks into a document is reported as that fault and not as an unsupported character.
      */
     const val PENDING_SEQUENCE_MARKER = "\uE000"
 

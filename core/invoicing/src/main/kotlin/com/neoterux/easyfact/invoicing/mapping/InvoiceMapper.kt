@@ -245,48 +245,48 @@ object InvoiceMapper {
         val issuer = request.issuer
         val buyer = request.buyer
 
-        val issuerLegalName = TextSanitizer.required(
+        val issuerLegalName = cleanRequired(
             RAZON_SOCIAL, issuer.legalName, FieldLimits.maxLength(FieldLimits.ISSUER_LEGAL_NAME),
-        ).orRefuse(RAZON_SOCIAL) { return Outcome.Err(it) }
-        val issuerTradeName = TextSanitizer.optional(
+        ) { return Outcome.Err(it) }
+        val issuerTradeName = cleanOptional(
             NOMBRE_COMERCIAL, issuer.tradeName, FieldLimits.maxLength(FieldLimits.ISSUER_TRADE_NAME),
-        ).orRefuse(NOMBRE_COMERCIAL) { return Outcome.Err(it) }
-        val headOfficeAddress = TextSanitizer.required(
+        ) { return Outcome.Err(it) }
+        val headOfficeAddress = cleanRequired(
             DIR_MATRIZ, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.HEAD_OFFICE_ADDRESS),
-        ).orRefuse(DIR_MATRIZ) { return Outcome.Err(it) }
+        ) { return Outcome.Err(it) }
         // D-15: one establishment, so the same address is cleaned again with `dirEstablecimiento`'s own limit.
-        val establishmentAddress = TextSanitizer.required(
+        val establishmentAddress = cleanRequired(
             DIR_ESTABLECIMIENTO, issuer.headOfficeAddress, FieldLimits.maxLength(FieldLimits.ESTABLISHMENT_ADDRESS),
-        ).orRefuse(DIR_ESTABLECIMIENTO) { return Outcome.Err(it) }
-        val specialTaxpayerNumber = TextSanitizer.optional(
+        ) { return Outcome.Err(it) }
+        val specialTaxpayerNumber = cleanOptional(
             CONTRIBUYENTE_ESPECIAL, issuer.specialTaxpayerNumber, FieldLimits.maxLength(FieldLimits.SPECIAL_TAXPAYER),
-        ).orRefuse(CONTRIBUYENTE_ESPECIAL) { return Outcome.Err(it) }
-        val buyerLegalName = TextSanitizer.required(
+        ) { return Outcome.Err(it) }
+        val buyerLegalName = cleanRequired(
             RAZON_SOCIAL_COMPRADOR, buyer.legalName, FieldLimits.maxLength(FieldLimits.BUYER_LEGAL_NAME),
-        ).orRefuse(RAZON_SOCIAL_COMPRADOR) { return Outcome.Err(it) }
-        val buyerIdentification = TextSanitizer.required(
+        ) { return Outcome.Err(it) }
+        val buyerIdentification = cleanRequired(
             IDENTIFICACION_COMPRADOR, buyer.identification, FieldLimits.maxLength(FieldLimits.BUYER_IDENTIFICATION),
-        ).orRefuse(IDENTIFICACION_COMPRADOR) { return Outcome.Err(it) }
+        ) { return Outcome.Err(it) }
         // The buyer's extras share one facet (and so one limit) but are named apart, so a refusal says which is wrong.
-        val billingEmail = TextSanitizer.required(
+        val billingEmail = cleanRequired(
             EMAIL_FIELD, buyer.billingEmail, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(EMAIL_FIELD) { return Outcome.Err(it) }
-        val buyerAddress = TextSanitizer.optional(
+        ) { return Outcome.Err(it) }
+        val buyerAddress = cleanOptional(
             ADDRESS_FIELD, buyer.address, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(ADDRESS_FIELD) { return Outcome.Err(it) }
-        val buyerPhone = TextSanitizer.optional(
+        ) { return Outcome.Err(it) }
+        val buyerPhone = cleanOptional(
             PHONE_FIELD, buyer.phone, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-        ).orRefuse(PHONE_FIELD) { return Outcome.Err(it) }
+        ) { return Outcome.Err(it) }
 
         val lineCodes = ArrayList<String?>(request.lines.size)
         val lineDescriptions = ArrayList<String>(request.lines.size)
         for (line in request.lines) {
-            lineCodes += TextSanitizer.optional(
+            lineCodes += cleanOptional(
                 CODIGO_PRINCIPAL, line.code, FieldLimits.maxLength(FieldLimits.LINE_CODE),
-            ).orRefuse(CODIGO_PRINCIPAL) { return Outcome.Err(it) }
-            lineDescriptions += TextSanitizer.required(
+            ) { return Outcome.Err(it) }
+            lineDescriptions += cleanRequired(
                 DESCRIPCION, line.description, FieldLimits.maxLength(FieldLimits.LINE_DESCRIPTION),
-            ).orRefuse(DESCRIPCION) { return Outcome.Err(it) }
+            ) { return Outcome.Err(it) }
         }
 
         val templateFields = ArrayList<AdditionalField>(request.templateFields.size)
@@ -294,18 +294,19 @@ object InvoiceMapper {
             // Named by position in the request's template fields (from zero), so the screen can point at the entry.
             val nameField = "$CAMPO_ADICIONAL_NOMBRE[$index]"
             val valueField = "$CAMPO_ADICIONAL[$index]"
-            val name = TextSanitizer.required(
+            val name = cleanRequired(
                 nameField, field.name, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD_NAME),
-            ).orRefuse(nameField) { return Outcome.Err(it) }
-            val value = TextSanitizer.required(
+            ) { return Outcome.Err(it) }
+            val value = cleanRequired(
                 valueField, field.value, FieldLimits.maxLength(FieldLimits.ADDITIONAL_FIELD),
-            ).orRefuse(valueField) { return Outcome.Err(it) }
+            ) { return Outcome.Err(it) }
             templateFields += AdditionalField(name, value)
         }
 
         val creditTermUnit = request.payment.creditTerm?.let { term ->
-            TextSanitizer.required(UNIDAD_TIEMPO, term.unit, FieldLimits.maxLength(FieldLimits.CREDIT_TERM_UNIT))
-                .orRefuse(UNIDAD_TIEMPO) { return Outcome.Err(it) }
+            cleanRequired(
+                UNIDAD_TIEMPO, term.unit, FieldLimits.maxLength(FieldLimits.CREDIT_TERM_UNIT),
+            ) { return Outcome.Err(it) }
         }
 
         return Outcome.Ok(
@@ -329,22 +330,40 @@ object InvoiceMapper {
     }
 
     /**
-     * Turns a sanitiser result into the cleaned text, or hands the refusal to [onRefused], which returns
-     * from the caller. A text that still holds the preview marker is refused as [MappingError.PreviewMarkerInDocument]
-     * for [field] (D-37): the marker means a sequential that does not exist yet, and a signed document must
-     * never carry it.
+     * Sanitises a required text, or hands the refusal to [onRefused], which returns from the caller. The raw
+     * text is checked for the preview marker first, because the sanitiser refuses every private-use code point
+     * and would otherwise report the marker as "an unsupported character": the marker means a preview string
+     * reached the commit path, a programming fault and never user input, so it is refused as
+     * [MappingError.PreviewMarkerInDocument] for [field] (D-37).
      */
-    private inline fun <T : String?> Outcome<T, SanitizerError>.orRefuse(
+    private inline fun cleanRequired(
         field: String,
+        raw: String,
+        maxLength: Int?,
         onRefused: (MappingError) -> Nothing,
-    ): T = when (this) {
-        is Outcome.Err -> onRefused(MappingError.Text(error))
-        is Outcome.Ok -> {
-            val cleaned: String? = value
-            if (cleaned != null && cleaned.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
-                onRefused(MappingError.PreviewMarkerInDocument(field))
-            }
-            value
+    ): String {
+        if (raw.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
+            onRefused(MappingError.PreviewMarkerInDocument(field))
+        }
+        return when (val result = TextSanitizer.required(field, raw, maxLength)) {
+            is Outcome.Err -> onRefused(MappingError.Text(result.error))
+            is Outcome.Ok -> result.value
+        }
+    }
+
+    /** As [cleanRequired], for a text that may be absent: `null` stays `null` and a blank text becomes `null`. */
+    private inline fun cleanOptional(
+        field: String,
+        raw: String?,
+        maxLength: Int?,
+        onRefused: (MappingError) -> Nothing,
+    ): String? {
+        if (raw != null && raw.contains(PlaceholderResolver.PENDING_SEQUENCE_MARKER)) {
+            onRefused(MappingError.PreviewMarkerInDocument(field))
+        }
+        return when (val result = TextSanitizer.optional(field, raw, maxLength)) {
+            is Outcome.Err -> onRefused(MappingError.Text(result.error))
+            is Outcome.Ok -> result.value
         }
     }
 
