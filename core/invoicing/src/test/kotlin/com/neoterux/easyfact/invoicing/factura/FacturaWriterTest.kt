@@ -490,34 +490,46 @@ class FacturaWriterTest {
         assertWritesAndValidates(lineWithDetails(3))
     }
 
-    /** A supplementary character is one schema character and two UTF-16 units. */
+    /** A supplementary character is two UTF-16 units: the unit both the writer and the JDK validator count. */
     private val supplementary = "\uD83D\uDE00"
 
     /**
-     * The writer counts characters as the schema does, in code points, so this value is within the
-     * 300-character facet and is written.
-     *
-     * It is deliberately not passed through [XsdGate]: the JDK's schema validator measures a string
-     * facet in UTF-16 units and reports this value as 301 long, so the oracle and the schema's own
-     * definition of a character disagree at exactly this boundary.
+     * The writer counts string facets in UTF-16 code units (D-13), exactly as the JDK schema
+     * validator does, so this 300-unit value is within the 300-character facet, is written, and the
+     * octets pass [XsdGate]. Before D-13 the writer counted code points and the two disagreed here.
      */
     @Test
-    fun aRazonSocialOf300CodePointsWithASupplementaryCharacterIsWritten() {
+    fun aRazonSocialOf300Utf16UnitsWithASupplementaryCharacterIsWrittenAndValidates() {
         val base = SampleFactura.factura()
-        val name = "A".repeat(299) + supplementary
-        assertEquals(300, name.codePointCount(0, name.length))
-        assertEquals(301, name.length)
-        assertTrue(rootXml(base.copy(taxInfo = base.taxInfo.copy(legalName = name))).contains(name))
+        val name = "A".repeat(298) + supplementary
+        assertEquals(300, name.length)
+        val factura = base.copy(taxInfo = base.taxInfo.copy(legalName = name))
+        assertTrue(rootXml(factura).contains(name))
+        assertWritesAndValidates(factura)
     }
 
     @Test
-    fun aRazonSocialOf301CodePointsIsATypedFailureCountedInCodePoints() {
+    fun aRazonSocialOver300Utf16UnitsIsATypedFailure() {
         val base = SampleFactura.factura()
-        val name = "A".repeat(300) + supplementary
+        val oneOver = "A".repeat(299) + supplementary
+        assertEquals(301, oneOver.length)
         assertEquals(
             FacturaError.FieldTooLong("razonSocial", 300, 301),
-            error(base.copy(taxInfo = base.taxInfo.copy(legalName = name))),
+            error(base.copy(taxInfo = base.taxInfo.copy(legalName = oneOver))),
         )
+        val twoOver = "A".repeat(300) + supplementary
+        assertEquals(302, twoOver.length)
+        assertEquals(
+            FacturaError.FieldTooLong("razonSocial", 300, 302),
+            error(base.copy(taxInfo = base.taxInfo.copy(legalName = twoOver))),
+        )
+    }
+
+    @Test
+    fun aRazonSocialOfExactly300BmpCharactersIsStillWritten() {
+        val base = SampleFactura.factura()
+        val name = "A".repeat(300)
+        assertWritesAndValidates(base.copy(taxInfo = base.taxInfo.copy(legalName = name)))
     }
 
     // ---- pattern and enumeration facets (WR-02) -----------------------------------------------------
